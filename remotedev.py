@@ -54,6 +54,7 @@ def carregar_config():
 
 BOT_NOME, TOKEN, CHAT_ID = carregar_config()
 BOT_SERVICE = f"remotedev-{BOT_NOME}"
+BOT_REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 
 WORKSPACE = os.path.expanduser("~/workspace")
 
@@ -314,6 +315,13 @@ async def processar_comando(chat_id, texto, msg, context):
                 if res["code"] == 0:
                     for h in executar_hooks(cwd, {"git_pushed"}):
                         await msg.reply_text(h)
+                    # Auto-restart se o push foi no repo do próprio bot
+                    if os.path.realpath(cwd) == os.path.realpath(BOT_REPO_DIR):
+                        await msg.reply_text(f"🔄 Reiniciando bot [{BOT_NOME}] em 2s...")
+                        subprocess.Popen(
+                            f"sleep 2 && systemctl --user restart {BOT_SERVICE}",
+                            shell=True,
+                        )
                 return
         await msg.reply_text(res["stdout"] or res["stderr"] or "(sem saída)")
 
@@ -674,6 +682,14 @@ async def cmd_push(update: Update, context: ContextTypes.DEFAULT_TYPE):
     hooks_msgs = executar_hooks(cwd, eventos)
     for h in hooks_msgs:
         await update.message.reply_text(h)
+
+    # Auto-restart se o push foi no repo do próprio bot
+    if res["code"] == 0 and os.path.realpath(cwd) == os.path.realpath(BOT_REPO_DIR):
+        await update.message.reply_text(f"🔄 Reiniciando bot [{BOT_NOME}] em 2s...")
+        subprocess.Popen(
+            f"sleep 2 && systemctl --user restart {BOT_SERVICE}",
+            shell=True,
+        )
 
 
 @autorizado
