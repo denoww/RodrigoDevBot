@@ -185,7 +185,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/p <code>nome</code> — trocar direto\n\n"
         "<b>Comandos:</b>\n"
         "/bash <code>comando</code> — executa qualquer comando\n"
-        "/claude <code>prompt</code> — Claude Code no projeto\n"
+        "/c <code>prompt</code> — Claude Code no projeto\n"
         "/git <code>args</code> — git (pull, push, status...)\n"
         "/rails <code>args</code> — rails runner/console\n"
         "/rake <code>task</code> — rake task\n"
@@ -280,7 +280,7 @@ async def cmd_bash(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = " ".join(context.args) if context.args else ""
     if not prompt:
-        await update.message.reply_text("Uso: /claude <prompt>")
+        await update.message.reply_text("Uso: /c <prompt>")
         return
 
     label = projeto_label(update.effective_chat.id)
@@ -295,7 +295,7 @@ async def cmd_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Extrair resultado e atividade do JSON verbose
     import json as json_mod
-    texto_resposta = res["stdout"]
+    texto_resposta = ""
     atividade = []
     try:
         data = json_mod.loads(res["stdout"])
@@ -303,7 +303,7 @@ async def cmd_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # --verbose retorna lista de eventos
             for item in data:
                 if item.get("type") == "result":
-                    texto_resposta = item.get("result", texto_resposta)
+                    texto_resposta = item.get("result", "")
                 elif item.get("type") == "assistant":
                     msg = item.get("message", {})
                     for block in msg.get("content", []):
@@ -311,7 +311,6 @@ async def cmd_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             if block.get("type") == "tool_use":
                                 tool_name = block.get("name", "?")
                                 tool_input = block.get("input", {})
-                                # Resumir o input da tool
                                 if isinstance(tool_input, dict):
                                     resumo = tool_input.get("command") or tool_input.get("pattern") or tool_input.get("file_path") or tool_input.get("query") or ""
                                     if resumo:
@@ -323,13 +322,19 @@ async def cmd_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             elif block.get("type") == "thinking":
                                 thinking_text = block.get("thinking", "")
                                 if thinking_text.strip():
-                                    # Pegar só as primeiras linhas
                                     linhas = thinking_text.strip().split("\n")[:5]
                                     atividade.append(f"🧠 {chr(10).join(linhas)}")
+                            elif block.get("type") == "text" and not texto_resposta:
+                                # Fallback: pegar texto do assistant se result não existir
+                                texto_resposta = block.get("text", "")
         elif isinstance(data, dict):
-            texto_resposta = data.get("result", texto_resposta)
+            texto_resposta = data.get("result", "")
     except (json_mod.JSONDecodeError, TypeError, KeyError):
-        pass
+        # Se JSON falhar, usar stdout como texto puro
+        texto_resposta = res["stdout"]
+
+    if not texto_resposta:
+        texto_resposta = "(sem resposta)"
 
     # Log completo com atividade
     log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"claude-{BOT_NOME}.log")
