@@ -51,7 +51,7 @@ def carregar_config():
     return nome, token, chat_id
 
 BOT_NOME, TOKEN, CHAT_ID = carregar_config()
-BOT_SERVICE = f"rodrigodevbot-{BOT_NOME}"
+BOT_SERVICE = f"remotedev-{BOT_NOME}"
 
 WORKSPACE = os.path.expanduser("~/workspace")
 

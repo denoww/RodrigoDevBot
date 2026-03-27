@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# RodrigoDevBot — Script centralizado
+# remotedev — Script centralizado
 #
 # Uso:
 #   ./bot.sh install              — instala um novo bot (interativo)
@@ -32,7 +32,7 @@ listar_bots() {
     for conf in "$BOTS_DIR"/*.conf; do
         nome=$(basename "$conf" .conf)
         source "$conf"
-        status=$(systemctl --user is-active "rodrigodevbot-$nome" 2>/dev/null || true)
+        status=$(systemctl --user is-active "remotedev-$nome" 2>/dev/null || true)
         if [ "$status" = "active" ]; then
             echo "  🟢 $nome"
         else
@@ -57,7 +57,7 @@ escolher_bot() {
     echo "Bots instalados:" >&2
     for i in "${!bots[@]}"; do
         nome="${bots[$i]}"
-        status=$(systemctl --user is-active "rodrigodevbot-$nome" 2>/dev/null || true)
+        status=$(systemctl --user is-active "remotedev-$nome" 2>/dev/null || true)
         if [ "$status" = "active" ]; then
             echo "  $((i+1))) 🟢 $nome" >&2
         else
@@ -108,7 +108,7 @@ cmd_install() {
     fi
 
     BOT_NOME_UPPER=$(echo "$BOT_NOME" | tr '[:lower:]' '[:upper:]')
-    SERVICE_NAME="rodrigodevbot-$BOT_NOME"
+    SERVICE_NAME="remotedev-$BOT_NOME"
     TOKEN_VAR="TELEGRAM_BOT_${BOT_NOME_UPPER}_TOKEN"
     CHAT_ID_VAR="TELEGRAM_${BOT_NOME_UPPER}_CHAT_ID"
 
@@ -184,7 +184,7 @@ EOF
     # Criar serviço
     cat > "$SERVICE_DIR/$SERVICE_NAME.service" << EOF
 [Unit]
-Description=RodrigoDevBot [$BOT_NOME] - Telegram Bot
+Description=remotedev [$BOT_NOME] - Telegram Bot
 After=network-online.target
 Wants=network-online.target
 
@@ -221,7 +221,7 @@ EOF
 cmd_uninstall() {
     resultado=$(escolher_bot "desinstalar")
     BOT_NOME=$(echo "$resultado" | tail -1)
-    SERVICE_NAME="rodrigodevbot-$BOT_NOME"
+    SERVICE_NAME="remotedev-$BOT_NOME"
 
     echo ""
     read -p "Tem certeza que deseja remover o bot [$BOT_NOME]? (s/N): " confirma
@@ -252,7 +252,7 @@ cmd_status() {
         [ -f "$conf" ] || { echo "Nenhum bot instalado."; exit 0; }
         nome=$(basename "$conf" .conf)
         echo "── $nome ──"
-        systemctl --user status "rodrigodevbot-$nome" --no-pager 2>&1 | head -5
+        systemctl --user status "remotedev-$nome" --no-pager 2>&1 | head -5
         echo ""
     done
 }
@@ -263,7 +263,7 @@ cmd_logs() {
         resultado=$(escolher_bot "ver logs")
         nome=$(echo "$resultado" | tail -1)
     fi
-    journalctl --user -u "rodrigodevbot-$nome" -f
+    journalctl --user -u "remotedev-$nome" -f
 }
 
 cmd_logs_claude() {
@@ -293,7 +293,7 @@ cmd_restart() {
         resultado=$(escolher_bot "reiniciar")
         nome=$(echo "$resultado" | tail -1)
     fi
-    systemctl --user restart "rodrigodevbot-$nome"
+    systemctl --user restart "remotedev-$nome"
     echo "✅ Bot [$nome] reiniciado."
 }
 
@@ -303,7 +303,7 @@ cmd_stop() {
         resultado=$(escolher_bot "parar")
         nome=$(echo "$resultado" | tail -1)
     fi
-    systemctl --user stop "rodrigodevbot-$nome"
+    systemctl --user stop "remotedev-$nome"
     echo "🔴 Bot [$nome] parado."
 }
 
@@ -313,12 +313,12 @@ cmd_start() {
         resultado=$(escolher_bot "iniciar")
         nome=$(echo "$resultado" | tail -1)
     fi
-    systemctl --user start "rodrigodevbot-$nome"
+    systemctl --user start "remotedev-$nome"
     echo "🟢 Bot [$nome] iniciado."
 }
 
 cmd_help() {
-    echo "RodrigoDevBot — Script centralizado"
+    echo "remotedev — Script centralizado"
     echo ""
     echo "Uso: ./bot.sh <comando> [argumentos]"
     echo ""
