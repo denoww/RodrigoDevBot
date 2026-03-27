@@ -207,19 +207,15 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Projeto atual: {label}\n\n"
         "<b>Claude Code:</b>\n"
         "Envie texto livre → vai pro Claude (mantém contexto)\n"
-        "/new — nova sessão (limpa contexto)\n"
-        "/c <code>prompt</code> — atalho para Claude\n\n"
+        "/new — nova sessão (limpa contexto)\n\n"
         "<b>Projeto:</b>\n"
         "/p — trocar projeto (botões)\n"
         "/p <code>nome</code> — trocar direto\n\n"
         "<b>Comandos:</b>\n"
         "/bash <code>comando</code> — executa no terminal\n"
         "/git <code>args</code> — git (pull, push, status...)\n"
-        "/rails <code>args</code> — rails runner/console\n"
-        "/rake <code>task</code> — rake task\n"
-        "/log <code>N</code> — últimas N linhas do log\n"
-        "/ping — verifica se desktop está online\n"
-        "/id — mostra seu chat_id\n"
+        "/ping_pc — verifica se desktop está online\n"
+        "/meu_chat_id — mostra seu chat_id\n"
         "/restart — reinicia o bot",
         parse_mode="HTML",
     )
@@ -342,7 +338,7 @@ async def _processar_claude_pendente(msg, cwd, label, prompt):
 # ══════════════════════════════════════════════════════════════════════
 
 @autorizado
-async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_meu_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"Seu chat_id: <code>{update.effective_chat.id}</code>",
         parse_mode="HTML",
@@ -350,7 +346,7 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @autorizado
-async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_ping_pc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     label = projeto_label(update.effective_chat.id)
     await update.message.reply_text(f"🟢 Online [{BOT_NOME}] — {agora}\nProjeto: {label}")
@@ -510,21 +506,6 @@ async def enviar_para_claude(update: Update, prompt: str):
         await msg.reply_text(h)
 
 
-@autorizado
-async def cmd_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    prompt = " ".join(context.args) if context.args else ""
-    if not prompt:
-        await update.message.reply_text(
-            "Uso: envie texto livre para o Claude\n"
-            "/c <code>prompt</code> — atalho para Claude\n"
-            "/new — nova sessão (limpa contexto)")
-        return
-
-    if not await exigir_projeto(update):
-        return
-
-    await enviar_para_claude(update, prompt)
-
 
 @autorizado
 async def cmd_new_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -550,48 +531,6 @@ async def cmd_git(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await enviar_resultado(update, res, cmd)
 
 
-@autorizado
-async def cmd_rails(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = " ".join(context.args) if context.args else ""
-    if not args:
-        await update.message.reply_text("Uso: /rails runner 'Codigo' ou /rails db:migrate")
-        return
-
-    if not await exigir_projeto(update):
-        return
-
-    cmd = f"bundle exec rails {args}"
-    await update.message.reply_text(f"⏳ rails {args}...")
-    res = rodar(cmd, cwd=projeto_path(update.effective_chat.id))
-    await enviar_resultado(update, res, cmd)
-
-
-@autorizado
-async def cmd_rake(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = " ".join(context.args) if context.args else ""
-    if not args:
-        await update.message.reply_text("Uso: /rake <task>")
-        return
-
-    if not await exigir_projeto(update):
-        return
-
-    cmd = f"bundle exec rake {args}"
-    await update.message.reply_text(f"⏳ rake {args}...")
-    res = rodar(cmd, cwd=projeto_path(update.effective_chat.id))
-    await enviar_resultado(update, res, cmd)
-
-
-@autorizado
-async def cmd_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await exigir_projeto(update):
-        return
-
-    linhas = context.args[0] if context.args else "50"
-    cmd = f"tail -n {linhas} log/development.log"
-
-    res = rodar(cmd, cwd=projeto_path(update.effective_chat.id))
-    await enviar_resultado(update, res, cmd)
 
 
 @autorizado
@@ -658,17 +597,11 @@ def main():
 
     # Comandos
     app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("id", cmd_id))
-    app.add_handler(CommandHandler("ping", cmd_ping))
+    app.add_handler(CommandHandler("meu_chat_id", cmd_meu_chat_id))
+    app.add_handler(CommandHandler("ping_pc", cmd_ping_pc))
     app.add_handler(CommandHandler("bash", cmd_bash))
-    app.add_handler(CommandHandler("claude", cmd_claude))
-    app.add_handler(CommandHandler("c", cmd_claude))
-    app.add_handler(CommandHandler("cc", cmd_claude))
     app.add_handler(CommandHandler("new", cmd_new_session))
     app.add_handler(CommandHandler("git", cmd_git))
-    app.add_handler(CommandHandler("rails", cmd_rails))
-    app.add_handler(CommandHandler("rake", cmd_rake))
-    app.add_handler(CommandHandler("log", cmd_log))
     app.add_handler(CommandHandler("restart", cmd_restart))
 
     # Mensagem livre → Claude
