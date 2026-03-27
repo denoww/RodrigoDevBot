@@ -1,0 +1,149 @@
+import os
+import subprocess
+import asyncio
+import json as json_mod
+import logging
+from logging.handlers import RotatingFileHandler
+from datetime import datetime
+
+from lib.config import BOT_NOME, BOT_REPO_DIR, CLAUDE_TIMEOUT, MAX_STDOUT, LOG_MAX_BYTES, LOG_BACKUP_COUNT
+from lib.utils import rodar, projeto_path, projeto_label
+from lib.hooks import git_remote_hash, detectar_eventos, executar_hooks
+
+# Estado
+claude_sessions = {}  # cwd → session_id
+claude_processos = {}  # cwd → subprocess.Popen
+claude_locks = {}  # cwd → asyncio.Lock
+claude_cancelado = set()  # cwds com stop ativo
+
+# Logger com rotação
+LOG_FILE_CLAUDE = os.path.join(BOT_REPO_DIR, f"claude-{BOT_NOME}.log")
+_claude_logger = logging.getLogger(f"claude-{BOT_NOME}")
+_claude_logger.setLevel(logging.INFO)
+_claude_handler = RotatingFileHandler(LOG_FILE_CLAUDE, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT)
+_claude_handler.setFormatter(logging.Formatter("%(message)s"))
+_claude_logger.addHandler(_claude_handler)
+
+
+def logar_prompt(label, cwd, prompt):
+    _claude_logger.info(f"\n{'='*60}")
+    _claude_logger.info(f"[{datetime.now().strftime('%d/%m/%Y %H:%M:%S')}] {label}")
+    _claude_logger.info(f"Projeto: {cwd}")
+    _claude_logger.info(f"Prompt: {prompt}")
+    _claude_logger.info(f"⏳ Aguardando Claude...")
+
+
+def logar_claude(label, cwd, prompt, res, texto_resposta):
+    _claude_logger.info(f"Exit: {res['code']}")
+    if texto_resposta:
+        _claude_logger.info(f"Resposta:\n{texto_resposta}")
+    if res["stderr"]:
+        _claude_logger.info(f"Erro:\n{res['stderr']}")
+
+
+def rodar_claude(prompt, cwd, session_id=None):
+    """Roda o Claude via stdin e retorna (res, texto_resposta, session_id)."""
+    flags = ['--dangerously-skip-permissions', '--output-format', 'json']
+    cmd_args = ['claude', '-p', '-'] + flags
+    if session_id:
+        cmd_args += ['--resume', session_id]
+
+    try:
+        proc = subprocess.Popen(
+            cmd_args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cwd=cwd, text=True, env={**os.environ, "TERM": "dumb"},
+            start_new_session=True,
+        )
+        claude_processos[cwd] = proc
+        try:
+            stdout, stderr = proc.communicate(input=prompt, timeout=CLAUDE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            os.killpg(os.getpgid(proc.pid), 9)
+            stdout, stderr = proc.communicate()
+        finally:
+            claude_processos.pop(cwd, None)
+
+        stdout = stdout.strip()
+        stderr = stderr.strip()
+        truncated = False
+        if len(stdout) > MAX_STDOUT:
+            stdout = stdout[:MAX_STDOUT] + "\n\n… (truncado)"
+            truncated = True
+        res = {"stdout": stdout, "stderr": stderr, "code": proc.returncode, "truncated": truncated}
+
+        if proc.returncode and proc.returncode < 0:
+            return res, "🛑 Comando cancelado.", None
+
+    except Exception as e:
+        claude_processos.pop(cwd, None)
+        res = {"stdout": "", "stderr": str(e), "code": -1, "truncated": False}
+
+    res["_raw"] = res["stdout"]
+
+    texto_resposta = ""
+    novo_session_id = None
+    try:
+        data = json_mod.loads(res["stdout"])
+        if isinstance(data, dict):
+            texto_resposta = data.get("result") or data.get("text") or ""
+            novo_session_id = data.get("session_id")
+        elif isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    if item.get("type") == "result":
+                        texto_resposta = item.get("result") or item.get("text") or ""
+                    if item.get("session_id"):
+                        novo_session_id = item.get("session_id")
+    except (json_mod.JSONDecodeError, TypeError, KeyError):
+        texto_resposta = res["stdout"]
+
+    if not texto_resposta:
+        texto_resposta = "(sem resposta)"
+
+    return res, texto_resposta, novo_session_id
+
+
+async def rodar_claude_completo(msg, chat_id, prompt):
+    """Executa Claude com sessão, log, hooks e resposta. Fila por projeto."""
+    cwd = projeto_path(chat_id)
+    label = projeto_label(chat_id)
+
+    if cwd not in claude_locks:
+        claude_locks[cwd] = asyncio.Lock()
+    lock = claude_locks[cwd]
+
+    if lock.locked():
+        if cwd in claude_cancelado:
+            return
+        await msg.reply_text(f"⏳ Aguardando comando anterior... [{label}]")
+
+    async with lock:
+        if cwd in claude_cancelado:
+            claude_cancelado.discard(cwd)
+            return
+
+        session_id = claude_sessions.get(cwd)
+
+        await msg.reply_text(f"🧠 {label}...")
+
+        log_prefix = "(continuação) " if session_id else ""
+        logar_prompt(label, cwd, f"{log_prefix}{prompt}")
+
+        hash_antes = git_remote_hash(cwd)
+        res, texto_resposta, novo_session_id = await asyncio.to_thread(rodar_claude, prompt, cwd, session_id)
+
+        if novo_session_id:
+            claude_sessions[cwd] = novo_session_id
+
+        logar_claude(label, cwd, f"{log_prefix}{prompt}", res, texto_resposta)
+
+        await msg.reply_text(texto_resposta or "(sem resposta)")
+        eventos = detectar_eventos(cwd, hash_antes)
+        hooks_msgs = executar_hooks(cwd, eventos)
+        for h in hooks_msgs:
+            await msg.reply_text(h)
+
+
+async def enviar_para_claude(update, prompt: str):
+    """Handler unificado do Claude."""
+    await rodar_claude_completo(update.message, update.effective_chat.id, prompt)
