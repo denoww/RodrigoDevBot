@@ -4,7 +4,17 @@ Telegram Bot para controle remoto multiprojeto via desktop.
 
 ## Instalação
 
+Caso não tenha o `python3-venv` instalado:
+
 ```bash
+sudo apt install python3-venv
+```
+
+Crie um ambiente virtual e instale as dependências:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
