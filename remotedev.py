@@ -751,11 +751,9 @@ async def mensagem_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ OPENAI_API_KEY não configurada. Áudios não podem ser transcritos.\nRode ./bot.sh install novamente para configurar.")
         return
 
-    if not await exigir_projeto(update):
-        return
-
     await update.message.reply_text("🎤 Transcrevendo áudio...")
 
+    tmp_path = None
     try:
         # Baixar áudio do Telegram
         file = await voice.get_file()
@@ -766,18 +764,68 @@ async def mensagem_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Transcrever
         texto = await transcrever_audio(tmp_path)
         os.unlink(tmp_path)
+        tmp_path = None
 
         if not texto or not texto.strip():
             await update.message.reply_text("⚠️ Não consegui transcrever o áudio.")
             return
 
         await update.message.reply_text(f"📝 {texto}")
+
+        # Verificar projeto APÓS transcrever — salva texto como pendente
+        chat_id = update.effective_chat.id
+        if projeto_config(chat_id) is None:
+            pendente[chat_id] = texto
+            botoes = []
+            for key, cfg in PROJETOS.items():
+                botoes.append(
+                    InlineKeyboardButton(f"📁 {cfg['nome']}", callback_data=f"projeto:{key}")
+                )
+            teclado = InlineKeyboardMarkup([botoes[i:i + 2] for i in range(0, len(botoes), 2)])
+            await update.message.reply_text("⚠️ Escolha um projeto primeiro:", reply_markup=teclado)
+            return
+
         await enviar_para_claude(update, texto)
 
     except Exception as e:
-        if os.path.exists(tmp_path):
+        if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
         await update.message.reply_text(f"❌ Erro ao transcrever: {e}")
+
+
+@autorizado
+async def mensagem_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.photo:
+        return
+
+    if not await exigir_projeto(update):
+        return
+
+    cwd = projeto_path(update.effective_chat.id)
+    caption = update.message.caption or ""
+
+    try:
+        # Baixar a foto (maior resolução)
+        photo = update.message.photo[-1]
+        file = await photo.get_file()
+        img_name = f"telegram_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+        img_path = os.path.join(cwd, img_name)
+        await file.download_to_drive(img_path)
+
+        # Montar prompt para o Claude analisar a imagem
+        if caption:
+            prompt = f"Analise a imagem em {img_path} e responda: {caption}"
+        else:
+            prompt = f"Analise a imagem em {img_path} e descreva o que você vê. Se for um screenshot de código ou erro, explique o que está acontecendo."
+
+        await enviar_para_claude(update, prompt)
+
+        # Limpar imagem após envio
+        if os.path.exists(img_path):
+            os.unlink(img_path)
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Erro ao processar imagem: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -837,6 +885,9 @@ def main():
 
     # Áudio → transcrever → Claude
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, mensagem_audio))
+
+    # Foto → Claude analisa
+    app.add_handler(MessageHandler(filters.PHOTO, mensagem_foto))
 
     async def post_init(application):
         await application.bot.send_message(
