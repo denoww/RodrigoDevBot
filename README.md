@@ -28,7 +28,11 @@ Passo a passo que o script executa:
 
 Para adicionar outro bot, rode `./bot.sh install` novamente com outro nome.
 
-## Gerenciar bots
+## Comandos disponíveis no Telegram
+
+Vá no bot Telegram e digite `/` para ver os comandos. Eles são registrados automaticamente ao iniciar o bot.
+
+## Gerenciar bots (comandos no computador)
 
 ```bash
 ./bot.sh list                    # lista bots instalados
@@ -43,7 +47,3 @@ Para adicionar outro bot, rode `./bot.sh install` novamente com outro nome.
 ```
 
 Todos os comandos que recebem nome do bot são opcionais — se não passar, ele lista os bots e pergunta qual.
-
-## Comandos disponíveis no Telegram
-
-Vá no bot Telegram e digite `/` para ver os comandos.
