@@ -286,44 +286,12 @@ async def processar_comando(chat_id, texto, msg, context):
     cwd = projeto_path(chat_id)
     label = projeto_label(chat_id)
 
-    if texto.startswith("/c ") or texto.startswith("/claude "):
+    if texto.startswith("/c ") or texto.startswith("/claude ") or texto.startswith("/cc "):
         prompt = texto.split(" ", 1)[1] if " " in texto else ""
         if not prompt:
             return
-        await msg.reply_text(f"🧠 Claude pensando... [{label}]")
-        prompt_escaped = prompt.replace('"', '\\"')
-        hash_antes = git_remote_hash(cwd)
-        res, texto_resposta, session_id = rodar_claude(prompt_escaped, cwd)
-        if session_id:
-            claude_sessions[cwd] = session_id
-        logar_claude(label, cwd, prompt, res, texto_resposta)
-        res["stdout"] = texto_resposta
-        await msg.reply_text(texto_resposta or "(sem resposta)")
-        eventos = detectar_eventos(cwd, hash_antes)
-        hooks_msgs = executar_hooks(cwd, eventos)
-        for h in hooks_msgs:
-            await msg.reply_text(h)
-
-    elif texto.startswith("/cc "):
-        prompt = texto.split(" ", 1)[1] if " " in texto else ""
-        if not prompt:
-            return
-        session_id = claude_sessions.get(cwd)
-        if not session_id:
-            pass  # sem sessão anterior, inicia nova
-        await msg.reply_text(f"🧠 Claude continuando... [{label}]")
-        prompt_escaped = prompt.replace('"', '\\"')
-        hash_antes = git_remote_hash(cwd)
-        res, texto_resposta, novo_session_id = rodar_claude(prompt_escaped, cwd, session_id)
-        if novo_session_id:
-            claude_sessions[cwd] = novo_session_id
-        logar_claude(label, cwd, f"(continuação) {prompt}", res, texto_resposta)
-        res["stdout"] = texto_resposta
-        await msg.reply_text(texto_resposta or "(sem resposta)")
-        eventos = detectar_eventos(cwd, hash_antes)
-        hooks_msgs = executar_hooks(cwd, eventos)
-        for h in hooks_msgs:
-            await msg.reply_text(h)
+        # Delegar para o handler unificado via helper
+        await _processar_claude_pendente(msg, cwd, label, prompt)
 
     elif texto.startswith("/bash "):
         cmd = texto.split(" ", 1)[1]
@@ -339,10 +307,34 @@ async def processar_comando(chat_id, texto, msg, context):
         await msg.reply_text(res["stdout"] or res["stderr"] or "(sem saída)")
 
     else:
-        # Mensagem livre → bash
-        await msg.reply_text("⏳ Executando...")
-        res = rodar(texto, cwd=cwd)
-        await msg.reply_text(res["stdout"] or res["stderr"] or "(sem saída)")
+        # Mensagem livre → Claude
+        await _processar_claude_pendente(msg, cwd, label, texto)
+
+
+async def _processar_claude_pendente(msg, cwd, label, prompt):
+    """Executa Claude para comandos pendentes (após seleção de projeto)."""
+    session_id = claude_sessions.get(cwd)
+
+    if session_id:
+        await msg.reply_text(f"🧠 Claude (continuando)... [{label}]")
+    else:
+        await msg.reply_text(f"🧠 Claude (nova sessão)... [{label}]")
+
+    prompt_escaped = prompt.replace('"', '\\"')
+    hash_antes = git_remote_hash(cwd)
+    res, texto_resposta, novo_session_id = rodar_claude(prompt_escaped, cwd, session_id)
+
+    if novo_session_id:
+        claude_sessions[cwd] = novo_session_id
+
+    log_prefix = "(continuação) " if session_id else ""
+    logar_claude(label, cwd, f"{log_prefix}{prompt}", res, texto_resposta)
+
+    await msg.reply_text(texto_resposta or "(sem resposta)")
+    eventos = detectar_eventos(cwd, hash_antes)
+    hooks_msgs = executar_hooks(cwd, eventos)
+    for h in hooks_msgs:
+        await msg.reply_text(h)
 
 
 # ══════════════════════════════════════════════════════════════════════
