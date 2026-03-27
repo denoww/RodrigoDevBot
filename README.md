@@ -75,44 +75,10 @@ restart - Reinicia o bot
 ### 6. Instalar como serviço (inicia com o sistema)
 
 ```bash
-mkdir -p ~/.config/systemd/user
-
-cat > ~/.config/systemd/user/rodrigodevbot.service << 'EOF'
-[Unit]
-Description=RodrigoDevBot - Telegram Bot
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-WorkingDirectory=/home/rodrigo/workspace/RodrigoDevBot
-ExecStart=/home/rodrigo/workspace/RodrigoDevBot/venv/bin/python3 telegram_desktop_bot.py
-Restart=always
-RestartSec=5
-EnvironmentFile=/home/rodrigo/.config/systemd/user/rodrigodevbot.env
-
-[Install]
-WantedBy=default.target
-EOF
+./install_service.sh
 ```
 
-Crie o arquivo de variáveis de ambiente:
-
-```bash
-cat > ~/.config/systemd/user/rodrigodevbot.env << EOF
-TELEGRAM_BOT_DEV_TOKEN=$TELEGRAM_BOT_DEV_TOKEN
-TELEGRAM_DEV_CHAT_ID=$TELEGRAM_DEV_CHAT_ID
-EOF
-```
-
-Ative e inicie:
-
-```bash
-systemctl --user daemon-reload
-systemctl --user enable rodrigodevbot
-systemctl --user start rodrigodevbot
-loginctl enable-linger $USER
-```
+O script cria o serviço systemd, configura as variáveis de ambiente e inicia o bot automaticamente.
 
 ### 7. Verificar status
 
