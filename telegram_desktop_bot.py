@@ -288,26 +288,49 @@ async def cmd_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt_escaped = prompt.replace('"', '\\"')
     cwd = projeto_path(update.effective_chat.id)
 
-    # Rodar com JSON para capturar thinking
-    cmd_json = f'claude -p "{prompt_escaped}" --dangerously-skip-permissions --output-format json'
+    # Rodar com --verbose para capturar eventos (tools usadas, etc)
+    cmd_json = f'claude -p "{prompt_escaped}" --dangerously-skip-permissions --output-format json --verbose'
     res = rodar(cmd_json, cwd=cwd, timeout=CLAUDE_TIMEOUT)
 
-    # Extrair texto e thinking do JSON
+    # Extrair resultado e atividade do JSON verbose
+    import json as json_mod
     texto_resposta = res["stdout"]
-    thinking = ""
+    atividade = []
     try:
-        import json as json_mod
         data = json_mod.loads(res["stdout"])
-        texto_resposta = data.get("result", res["stdout"])
-        # Extrair thinking dos messages
-        for msg in data.get("messages", []):
-            for block in msg.get("content", []):
-                if isinstance(block, dict) and block.get("type") == "thinking":
-                    thinking += block.get("thinking", "") + "\n"
+        if isinstance(data, list):
+            # --verbose retorna lista de eventos
+            for item in data:
+                if item.get("type") == "result":
+                    texto_resposta = item.get("result", texto_resposta)
+                elif item.get("type") == "assistant":
+                    msg = item.get("message", {})
+                    for block in msg.get("content", []):
+                        if isinstance(block, dict):
+                            if block.get("type") == "tool_use":
+                                tool_name = block.get("name", "?")
+                                tool_input = block.get("input", {})
+                                # Resumir o input da tool
+                                if isinstance(tool_input, dict):
+                                    resumo = tool_input.get("command") or tool_input.get("pattern") or tool_input.get("file_path") or tool_input.get("query") or ""
+                                    if resumo:
+                                        atividade.append(f"🔧 {tool_name}: {resumo}")
+                                    else:
+                                        atividade.append(f"🔧 {tool_name}")
+                                else:
+                                    atividade.append(f"🔧 {tool_name}")
+                            elif block.get("type") == "thinking":
+                                thinking_text = block.get("thinking", "")
+                                if thinking_text.strip():
+                                    # Pegar só as primeiras linhas
+                                    linhas = thinking_text.strip().split("\n")[:5]
+                                    atividade.append(f"🧠 {chr(10).join(linhas)}")
+        elif isinstance(data, dict):
+            texto_resposta = data.get("result", texto_resposta)
     except (json_mod.JSONDecodeError, TypeError, KeyError):
         pass
 
-    # Log completo com thinking
+    # Log completo com atividade
     log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"claude-{BOT_NOME}.log")
     with open(log_file, "a") as f:
         f.write(f"\n{'='*60}\n")
@@ -315,14 +338,23 @@ async def cmd_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f.write(f"Projeto: {cwd}\n")
         f.write(f"Prompt: {prompt}\n")
         f.write(f"Exit: {res['code']}\n")
-        if thinking:
-            f.write(f"🧠 Thinking:\n{thinking}\n")
+        if atividade:
+            f.write(f"Atividade:\n")
+            for a in atividade:
+                f.write(f"  {a}\n")
         if texto_resposta:
             f.write(f"Resposta:\n{texto_resposta}\n")
         if res["stderr"]:
             f.write(f"Erro:\n{res['stderr']}\n")
 
-    # Enviar só a resposta pro Telegram
+    # Enviar atividade pro Telegram (se houver)
+    if atividade:
+        atividade_texto = "\n".join(atividade)
+        if len(atividade_texto) > 3000:
+            atividade_texto = atividade_texto[:3000] + "\n... (truncado)"
+        await update.message.reply_text(f"🔍 Atividade:\n\n{atividade_texto}")
+
+    # Enviar resposta pro Telegram
     res["stdout"] = texto_resposta
     await enviar_resultado(update, res, f"claude: {prompt[:80]}...")
 
