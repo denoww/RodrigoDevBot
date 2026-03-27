@@ -2,7 +2,7 @@
 
 Telegram Bot para controle remoto multiprojeto via desktop. Suporta múltiplos bots rodando em paralelo.
 
-## Instalação
+## Instale Python (se não tiver)
 
 ```bash
 sudo apt install python3-venv   # se necessário

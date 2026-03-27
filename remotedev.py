@@ -17,6 +17,7 @@ Variáveis de ambiente por bot:
 import os
 import sys
 import subprocess
+import asyncio
 import html
 import json as json_mod
 import tempfile
@@ -85,9 +86,9 @@ BOTFATHER_COMMANDS = (
     "gitdiff - Ver alteracoes pendentes\n"
     "gitdiffia - Gerar mensagem de commit com IA\n"
     "gitpush - Add, commit e push automatico\n"
+    "gitbranch - Trocar ou criar branch\n"
     "gitreset - Descartar todas as alteracoes\n"
     "ping_pc - Verifica se desktop esta online\n"
-    "meu_chat_id - Mostra seu chat_id\n"
     "restart_bot - Reinicia o bot"
 )
 
@@ -97,6 +98,8 @@ CLAUDE_TIMEOUT = 600
 estado = {}
 pendente = {}  # chat_id → mensagem original (Update) pendente após escolha de projeto
 claude_processos = {}  # cwd → subprocess.Popen do Claude em execução
+claude_locks = {}  # cwd → asyncio.Lock para fila por projeto
+claude_cancelado = set()  # cwds com stop ativo — novos comandos na fila são descartados
 
 # ══════════════════════════════════════════════════════════════════════
 # HELPERS
@@ -315,10 +318,15 @@ async def processar_comando(chat_id, texto, msg, context):
     elif texto.startswith("/gitpush"):
         msg_commit = texto.split(" ", 1)[1].strip() if " " in texto else ""
         if not msg_commit:
-            msg_commit = gerar_mensagem_commit(cwd)
-        if not msg_commit:
-            await msg.reply_text("⚠️ Nenhuma alteração encontrada para commitar.")
-            return
+            status = rodar("git status --short", cwd=cwd)
+            if not status["stdout"]:
+                await msg.reply_text("⚠️ Nenhuma alteração encontrada para commitar.")
+                return
+            await msg.reply_text(f"🤖 [{label}] Gerando mensagem de commit...")
+            _, msg_commit = await _gerar_commit_ia(cwd)
+            if not msg_commit:
+                await msg.reply_text("⚠️ Não consegui gerar mensagem de commit.")
+                return
         await msg.reply_text(f"⏳ Push: {msg_commit}")
         res = rodar("git add -A", cwd=cwd)
         if res["code"] == 0:
@@ -329,6 +337,16 @@ async def processar_comando(chat_id, texto, msg, context):
                 await pos_push(msg, cwd, res)
                 return
         await msg.reply_text(res["stdout"] or res["stderr"] or "(sem saída)")
+
+    elif texto.startswith("/gitdiffia"):
+        await _enviar_diff(msg, cwd, label)
+        await msg.reply_text(f"🤖 [{label}] Gerando mensagem de commit...")
+        resumo, msg_commit = await _gerar_commit_ia(cwd)
+        texto_resp = ""
+        if resumo:
+            texto_resp += f"📝 Resumo: {resumo}\n\n"
+        texto_resp += f"💡 Commit: {msg_commit or '(sem sugestão)'}"
+        await msg.reply_text(texto_resp)
 
     elif texto.startswith("/gitdiff"):
         await _enviar_diff(msg, cwd, label)
@@ -346,33 +364,51 @@ async def processar_comando(chat_id, texto, msg, context):
 
 
 async def _rodar_claude_completo(msg, chat_id, prompt):
-    """Executa Claude com sessão, log, hooks e resposta. Usado por todos os caminhos."""
+    """Executa Claude com sessão, log, hooks e resposta. Fila por projeto."""
     cwd = projeto_path(chat_id)
     label = projeto_label(chat_id)
-    session_id = claude_sessions.get(cwd)
 
-    if session_id:
-        await msg.reply_text(f"🧠 Claude (continuando)... [{label}]")
-    else:
-        await msg.reply_text(f"🧠 Claude (nova sessão)... [{label}]")
+    # Fila por projeto — um comando de cada vez
+    if cwd not in claude_locks:
+        claude_locks[cwd] = asyncio.Lock()
+    lock = claude_locks[cwd]
 
-    log_prefix = "(continuação) " if session_id else ""
-    logar_prompt(label, cwd, f"{log_prefix}{prompt}")
+    if lock.locked():
+        # Comando chegou enquanto outro roda — entra na fila
+        # Se stop já foi chamado, descartar imediatamente
+        if cwd in claude_cancelado:
+            return
+        await msg.reply_text(f"⏳ Aguardando comando anterior... [{label}]")
 
-    prompt_escaped = prompt.replace('"', '\\"')
-    hash_antes = git_remote_hash(cwd)
-    res, texto_resposta, novo_session_id = rodar_claude(prompt_escaped, cwd, session_id)
+    async with lock:
+        # Se /stop foi chamado enquanto esperava na fila, descartar
+        if cwd in claude_cancelado:
+            claude_cancelado.discard(cwd)
+            return
 
-    if novo_session_id:
-        claude_sessions[cwd] = novo_session_id
+        session_id = claude_sessions.get(cwd)
 
-    logar_claude(label, cwd, f"{log_prefix}{prompt}", res, texto_resposta)
+        if session_id:
+            await msg.reply_text(f"🧠 Claude (continuando)... [{label}]")
+        else:
+            await msg.reply_text(f"🧠 Claude (nova sessão)... [{label}]")
 
-    await msg.reply_text(texto_resposta or "(sem resposta)")
-    eventos = detectar_eventos(cwd, hash_antes)
-    hooks_msgs = executar_hooks(cwd, eventos)
-    for h in hooks_msgs:
-        await msg.reply_text(h)
+        log_prefix = "(continuação) " if session_id else ""
+        logar_prompt(label, cwd, f"{log_prefix}{prompt}")
+
+        hash_antes = git_remote_hash(cwd)
+        res, texto_resposta, novo_session_id = await asyncio.to_thread(rodar_claude, prompt, cwd, session_id)
+
+        if novo_session_id:
+            claude_sessions[cwd] = novo_session_id
+
+        logar_claude(label, cwd, f"{log_prefix}{prompt}", res, texto_resposta)
+
+        await msg.reply_text(texto_resposta or "(sem resposta)")
+        eventos = detectar_eventos(cwd, hash_antes)
+        hooks_msgs = executar_hooks(cwd, eventos)
+        for h in hooks_msgs:
+            await msg.reply_text(h)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -471,29 +507,28 @@ async def pos_push(update_or_msg, cwd, res):
         for h in executar_hooks(cwd, {"git_pushed"}):
             await msg.reply_text(h)
         if os.path.realpath(cwd) == os.path.realpath(BOT_REPO_DIR):
-            await msg.reply_text(f"🔄 Reiniciando bot [{BOT_NOME}] em 2s...")
+            await msg.reply_text(f"🔄 Reiniciando {BOT_NOME}...")
             subprocess.Popen(f"sleep 2 && systemctl --user restart {BOT_SERVICE}", shell=True)
 
 
-def rodar_claude(prompt_escaped, cwd, session_id=None):
-    """Roda o Claude e retorna (res, texto_resposta, session_id)."""
+def rodar_claude(prompt, cwd, session_id=None):
+    """Roda o Claude via stdin e retorna (res, texto_resposta, session_id)."""
 
-    flags = '--dangerously-skip-permissions --output-format json'
+    flags = ['--dangerously-skip-permissions', '--output-format', 'json']
+    cmd_args = ['claude', '-p', '-'] + flags
     if session_id:
-        cmd = f'claude -p "{prompt_escaped}" --resume "{session_id}" {flags}'
-    else:
-        cmd = f'claude -p "{prompt_escaped}" {flags}'
+        cmd_args += ['--resume', session_id]
 
     # Usar Popen para poder cancelar via /stop
     try:
         proc = subprocess.Popen(
-            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cmd_args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             cwd=cwd, text=True, env={**os.environ, "TERM": "dumb"},
             start_new_session=True,
         )
         claude_processos[cwd] = proc
         try:
-            stdout, stderr = proc.communicate(timeout=CLAUDE_TIMEOUT)
+            stdout, stderr = proc.communicate(input=prompt, timeout=CLAUDE_TIMEOUT)
         except subprocess.TimeoutExpired:
             os.killpg(os.getpgid(proc.pid), 9)
             stdout, stderr = proc.communicate()
@@ -508,6 +543,11 @@ def rodar_claude(prompt_escaped, cwd, session_id=None):
             stdout = stdout[:MAX] + "\n\n… (truncado)"
             truncated = True
         res = {"stdout": stdout, "stderr": stderr, "code": proc.returncode, "truncated": truncated}
+
+        # Se foi morto por signal (stop/kill), retornar mensagem limpa
+        if proc.returncode and proc.returncode < 0:
+            return res, "🛑 Comando cancelado.", None
+
     except Exception as e:
         claude_processos.pop(cwd, None)
         res = {"stdout": "", "stderr": str(e), "code": -1, "truncated": False}
@@ -520,13 +560,13 @@ def rodar_claude(prompt_escaped, cwd, session_id=None):
     try:
         data = json_mod.loads(res["stdout"])
         if isinstance(data, dict):
-            texto_resposta = data.get("result", "")
+            texto_resposta = data.get("result") or data.get("text") or ""
             novo_session_id = data.get("session_id")
         elif isinstance(data, list):
             for item in data:
                 if isinstance(item, dict):
                     if item.get("type") == "result":
-                        texto_resposta = item.get("result", "")
+                        texto_resposta = item.get("result") or item.get("text") or ""
                     if item.get("session_id"):
                         novo_session_id = item.get("session_id")
     except (json_mod.JSONDecodeError, TypeError, KeyError):
@@ -586,15 +626,19 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     label = projeto_label(update.effective_chat.id)
     proc = claude_processos.get(cwd)
 
+    # Marcar como cancelado — descarta comandos na fila
+    claude_cancelado.add(cwd)
+
     if proc and proc.poll() is None:
+        await update.message.reply_text(f"⏳ Cancelando... [{label}]")
         try:
             os.killpg(os.getpgid(proc.pid), 9)
         except ProcessLookupError:
             pass
         claude_processos.pop(cwd, None)
-        await update.message.reply_text(f"🛑 Comando cancelado! [{label}]")
+        await update.message.reply_text(f"🛑 Tudo cancelado! [{label}]")
     else:
-        await update.message.reply_text(f"ℹ️ Nenhum comando em execução. [{label}]")
+        await update.message.reply_text(f"🛑 Fila limpa! [{label}]")
 
 
 @autorizado
@@ -611,110 +655,76 @@ async def cmd_gitreset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🗑️ Todas as alterações descartadas! [{label}]")
 
 
-def gerar_mensagem_commit(cwd):
-    """Gera mensagem de commit em português baseada no git diff."""
-    # Pegar diff dos arquivos staged + unstaged
-    diff = subprocess.run(
-        ["git", "diff", "HEAD", "--stat"],
-        cwd=cwd, capture_output=True, text=True, timeout=10,
-    )
-    stat = diff.stdout.strip()
-    if not stat:
-        # Verificar arquivos não rastreados
-        untracked = subprocess.run(
-            ["git", "ls-files", "--others", "--exclude-standard"],
-            cwd=cwd, capture_output=True, text=True, timeout=10,
-        )
-        if untracked.stdout.strip():
-            arquivos = untracked.stdout.strip().split("\n")
-            if len(arquivos) == 1:
-                return f"Adicionar {arquivos[0]}"
-            return f"Adicionar {len(arquivos)} novos arquivos"
-        return None
+def _obter_diff_texto(cwd):
+    """Retorna o diff completo do projeto (staged + unstaged + untracked)."""
+    diff_out = rodar("git diff", cwd=cwd)
+    diff_cached = rodar("git diff --cached", cwd=cwd)
+    diff_texto = (diff_out["stdout"] or "") + "\n" + (diff_cached["stdout"] or "")
+    diff_texto = diff_texto.strip()
 
-    # Pegar diff detalhado para entender as mudanças
-    diff_detail = subprocess.run(
-        ["git", "diff", "HEAD", "--no-color"],
-        cwd=cwd, capture_output=True, text=True, timeout=10,
-    )
-    diff_text = diff_detail.stdout.strip()
+    if not diff_texto:
+        status = rodar("git status --short", cwd=cwd)
+        diff_texto = status["stdout"] or ""
 
-    # Analisar arquivos alterados
-    changed = subprocess.run(
-        ["git", "diff", "HEAD", "--name-only"],
-        cwd=cwd, capture_output=True, text=True, timeout=10,
-    )
-    arquivos = [f for f in changed.stdout.strip().split("\n") if f]
+    if len(diff_texto) > 8000:
+        diff_texto = diff_texto[:8000] + "\n... (diff truncado)"
 
-    if not arquivos:
-        return None
+    return diff_texto
 
-    # Contadores
-    added = subprocess.run(
-        ["git", "diff", "HEAD", "--diff-filter=A", "--name-only"],
-        cwd=cwd, capture_output=True, text=True, timeout=10,
-    )
-    deleted = subprocess.run(
-        ["git", "diff", "HEAD", "--diff-filter=D", "--name-only"],
-        cwd=cwd, capture_output=True, text=True, timeout=10,
-    )
-    modified = subprocess.run(
-        ["git", "diff", "HEAD", "--diff-filter=M", "--name-only"],
-        cwd=cwd, capture_output=True, text=True, timeout=10,
+
+async def _gerar_commit_ia(cwd):
+    """Gera mensagem de commit via Claude AI baseada no diff atual. Retorna (resumo, msg_commit)."""
+    diff_texto = _obter_diff_texto(cwd)
+    if not diff_texto:
+        return None, None
+
+    prompt = (
+        "Analise o diff abaixo e responda EXATAMENTE neste formato (sem nada antes ou depois):\n"
+        "RESUMO: <resumo curto em português do que foi feito, 1-2 frases, linguagem natural>\n"
+        "COMMIT: <mensagem de commit no formato tipo(escopo): descrição em português>\n\n"
+        "Tipos de commit: feat, fix, refactor, docs, style, chore, test.\n\n"
+        f"{diff_texto}"
     )
 
-    added_files = [f for f in added.stdout.strip().split("\n") if f]
-    deleted_files = [f for f in deleted.stdout.strip().split("\n") if f]
-    modified_files = [f for f in modified.stdout.strip().split("\n") if f]
+    res, texto_resposta, _ = await asyncio.to_thread(rodar_claude, prompt, cwd)
 
-    # Incluir arquivos não rastreados como adicionados
-    untracked = subprocess.run(
-        ["git", "ls-files", "--others", "--exclude-standard"],
-        cwd=cwd, capture_output=True, text=True, timeout=10,
-    )
-    untracked_files = [f for f in untracked.stdout.strip().split("\n") if f]
-    added_files.extend(untracked_files)
+    resposta = texto_resposta.strip()
+    resumo = ""
+    msg_commit = ""
+    for linha in resposta.split("\n"):
+        linha = linha.strip()
+        if linha.upper().startswith("RESUMO:"):
+            resumo = linha[7:].strip()
+        elif linha.upper().startswith("COMMIT:"):
+            msg_commit = linha[7:].strip().strip('"').strip("'").strip("`")
 
-    partes = []
-    if len(arquivos) + len(untracked_files) == 1:
-        nome = (arquivos + untracked_files)[0]
-        if added_files:
-            return f"Adicionar {nome}"
-        if deleted_files:
-            return f"Remover {nome}"
-        return f"Atualizar {nome}"
+    if not msg_commit:
+        msg_commit = resposta.strip().strip('"').strip("'").strip("`")
 
-    if added_files:
-        partes.append(f"adicionar {len(added_files)} arquivo(s)")
-    if modified_files:
-        partes.append(f"atualizar {len(modified_files)} arquivo(s)")
-    if deleted_files:
-        partes.append(f"remover {len(deleted_files)} arquivo(s)")
-
-    if partes:
-        msg = partes[0].capitalize()
-        if len(partes) > 1:
-            msg += " e " + ", ".join(partes[1:])
-        return msg
-
-    return f"Atualizar {len(arquivos)} arquivo(s)"
+    return resumo, msg_commit
 
 
 @autorizado
 async def cmd_push(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Faz add, commit e push. Se não passar mensagem, gera automaticamente."""
+    """Faz add, commit e push. Se não passar mensagem, gera via IA."""
     if not await exigir_projeto(update):
         return
 
     chat_id = update.effective_chat.id
     cwd = projeto_path(chat_id)
+    label = projeto_label(chat_id)
     msg_commit = " ".join(context.args).strip() if context.args else ""
 
-    # Se não passou mensagem, gerar automaticamente
+    # Se não passou mensagem, gerar via IA
     if not msg_commit:
-        msg_commit = gerar_mensagem_commit(cwd)
-        if not msg_commit:
+        status = rodar("git status --short", cwd=cwd)
+        if not status["stdout"]:
             await update.message.reply_text("⚠️ Nenhuma alteração encontrada para commitar.")
+            return
+        await update.message.reply_text(f"🤖 [{label}] Gerando mensagem de commit...")
+        resumo, msg_commit = await _gerar_commit_ia(cwd)
+        if not msg_commit:
+            await update.message.reply_text("⚠️ Não consegui gerar mensagem de commit.")
             return
 
     await update.message.reply_text(f"⏳ Push: {msg_commit}")
@@ -753,6 +763,41 @@ async def cmd_git(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"⏳ git {args}...")
     res = rodar(cmd, cwd=projeto_path(update.effective_chat.id))
     await enviar_resultado(update, res, cmd)
+
+
+@autorizado
+async def cmd_gitbranch(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Troca de branch (cria se não existir) e faz git pull."""
+    if not await exigir_projeto(update):
+        return
+
+    branch = " ".join(context.args).strip() if context.args else ""
+    if not branch:
+        # Sem argumento: mostra branch atual e lista
+        cwd = projeto_path(update.effective_chat.id)
+        res = rodar("git branch -a", cwd=cwd)
+        await enviar_resultado(update, res, "git branch -a")
+        return
+
+    cwd = projeto_path(update.effective_chat.id)
+    label = projeto_label(update.effective_chat.id)
+
+    # Tentar trocar para branch existente
+    res = rodar(f"git checkout {branch}", cwd=cwd)
+    if res["code"] != 0:
+        # Branch não existe — criar
+        res = rodar(f"git checkout -b {branch}", cwd=cwd)
+        if res["code"] != 0:
+            await enviar_resultado(update, res, f"git checkout -b {branch}")
+            return
+        await update.message.reply_text(f"🌿 [{label}] Branch <code>{branch}</code> criada!", parse_mode="HTML")
+    else:
+        await update.message.reply_text(f"🔀 [{label}] Branch: <code>{branch}</code>", parse_mode="HTML")
+
+    # git pull
+    res_pull = rodar("git pull", cwd=cwd, timeout=60)
+    if res_pull["code"] == 0 and res_pull["stdout"]:
+        await update.message.reply_text(f"⬇️ {res_pull['stdout']}")
 
 
 
@@ -799,7 +844,7 @@ async def cmd_diff(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @autorizado
 async def cmd_diffia(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Gera resumo descritivo e mensagem de commit usando Claude baseado no diff atual."""
+    """Mostra diff + gera resumo e mensagem de commit via IA."""
     if not await exigir_projeto(update):
         return
     chat_id = update.effective_chat.id
@@ -811,71 +856,22 @@ async def cmd_diffia(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ [{label}] Nenhuma alteração pendente.")
         return
 
-    # Montar resumo de status (novo/modificado/removido)
-    linhas = [l for l in status["stdout"].split("\n") if l.strip()]
-    added = [l for l in linhas if l.startswith("?") or l.startswith("A")]
-    modified = [l for l in linhas if l.startswith("M") or l.startswith(" M")]
-    deleted = [l for l in linhas if l.startswith("D") or l.startswith(" D")]
+    # Mostrar diff primeiro
+    await _enviar_diff(update.message, cwd, label)
 
-    resumo_contagem = []
-    if added:
-        resumo_contagem.append(f"📄 {len(added)} novo(s)")
-    if modified:
-        resumo_contagem.append(f"✏️ {len(modified)} modificado(s)")
-    if deleted:
-        resumo_contagem.append(f"🗑️ {len(deleted)} removido(s)")
-
-    diff_stat = rodar("git diff --stat", cwd=cwd)
-
-    diff_out = rodar("git diff", cwd=cwd)
-    diff_cached = rodar("git diff --cached", cwd=cwd)
-    diff_texto = (diff_out["stdout"] or "") + "\n" + (diff_cached["stdout"] or "")
-    diff_texto = diff_texto.strip()
-
-    if not diff_texto:
-        diff_texto = status["stdout"]
-
-    if len(diff_texto) > 8000:
-        diff_texto = diff_texto[:8000] + "\n... (diff truncado)"
-
-    aguarde = await update.message.reply_text(f"🤖 [{label}] Analisando diff...")
-
-    prompt = (
-        "Analise o diff abaixo e responda EXATAMENTE neste formato (sem nada antes ou depois):\\n"
-        "RESUMO: <resumo curto em português do que foi feito, 1-2 frases, linguagem natural>\\n"
-        "COMMIT: <mensagem de commit no formato tipo(escopo): descrição em português>\\n\\n"
-        "Tipos de commit: feat, fix, refactor, docs, style, chore, test.\\n\\n"
-        f"{diff_texto}"
-    ).replace('"', '\\"')
-
-    res, texto_resposta, _ = rodar_claude(prompt, cwd)
+    # Gerar commit via IA
+    aguarde = await update.message.reply_text(f"🤖 [{label}] Gerando mensagem de commit...")
+    resumo, msg_commit = await _gerar_commit_ia(cwd)
 
     try:
         await aguarde.delete()
     except Exception:
         pass
 
-    resposta = texto_resposta.strip()
-    resumo_ia = ""
-    msg_commit = ""
-    for linha in resposta.split("\n"):
-        linha = linha.strip()
-        if linha.upper().startswith("RESUMO:"):
-            resumo_ia = linha[7:].strip()
-        elif linha.upper().startswith("COMMIT:"):
-            msg_commit = linha[7:].strip().strip('"').strip("'").strip("`")
-
-    if not msg_commit:
-        msg_commit = resposta.strip().strip('"').strip("'").strip("`")
-
-    # Montar mensagem final
-    texto = f"📊 [{label}] {', '.join(resumo_contagem)}\n\n"
-    texto += f"<pre>{html.escape(status['stdout'])}</pre>"
-    if diff_stat["stdout"]:
-        texto += f"\n\n<pre>{html.escape(diff_stat['stdout'])}</pre>"
-    if resumo_ia:
-        texto += f"\n\n📝 <b>Resumo:</b> {html.escape(resumo_ia)}"
-    texto += f"\n\n💡 <b>Commit:</b>\n<code>{html.escape(msg_commit)}</code>"
+    texto = ""
+    if resumo:
+        texto += f"📝 <b>Resumo:</b> {html.escape(resumo)}\n\n"
+    texto += f"💡 <b>Commit:</b>\n<code>{html.escape(msg_commit or '(sem sugestão)')}</code>"
 
     try:
         await update.message.reply_text(texto, parse_mode="HTML")
@@ -887,7 +883,7 @@ async def cmd_diffia(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @autorizado
 async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"🔄 Reiniciando bot [{BOT_NOME}] em 2s...")
+    await update.message.reply_text(f"🔄 Reiniciando {BOT_NOME}...")
     subprocess.Popen(
         f"sleep 2 && systemctl --user restart {BOT_SERVICE}",
         shell=True,
@@ -1034,7 +1030,7 @@ def main():
         print("   Veja o README para instruções.")
         return
 
-    app = Application.builder().token(TOKEN).build()
+    app = Application.builder().token(TOKEN).concurrent_updates(True).build()
 
     # Projeto
     app.add_handler(CommandHandler("p", cmd_projeto))
@@ -1044,7 +1040,6 @@ def main():
     # Comandos
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_start))
-    app.add_handler(CommandHandler("meu_chat_id", cmd_meu_chat_id))
     app.add_handler(CommandHandler("ping_pc", cmd_ping_pc))
     app.add_handler(CommandHandler("bash", cmd_bash))
     app.add_handler(CommandHandler("new", cmd_new_session))
@@ -1052,6 +1047,7 @@ def main():
     app.add_handler(CommandHandler("gitdiff", cmd_diff))
     app.add_handler(CommandHandler("gitdiffia", cmd_diffia))
     app.add_handler(CommandHandler("gitreset", cmd_gitreset))
+    app.add_handler(CommandHandler("gitbranch", cmd_gitbranch))
     app.add_handler(CommandHandler("git", cmd_git))
     app.add_handler(CommandHandler("gitpush", cmd_push))
     app.add_handler(CommandHandler("restart_bot", cmd_restart))
@@ -1077,7 +1073,7 @@ def main():
 
         await application.bot.send_message(
             chat_id=CHAT_ID,
-            text=f"🟢 Bot [{BOT_NOME}] iniciado!\n📁 Projetos: {', '.join(PROJETOS.keys())}",
+            text=f"🟢 {BOT_NOME} iniciado!",
         )
 
     app.post_init = post_init
