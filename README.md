@@ -80,19 +80,34 @@ restart - Reinicia o bot
 
 O script cria o serviço systemd, configura as variáveis de ambiente e inicia o bot automaticamente.
 
-### 7. Verificar status
+Depois abra seu bot no Telegram e envie `/start`.
+
+### 7. Logs
+
+Logs do bot (systemd):
+
+```bash
+./logs_do_service.sh
+```
+
+Logs das execuções do `/claude`:
+
+```bash
+./logs_do_claude.sh
+./logs_do_claude.sh scsip   # filtra por projeto
+```
+
+Status do serviço:
 
 ```bash
 systemctl --user status rodrigodevbot
 ```
 
-Ver logs:
+### 8. Desinstalar
 
 ```bash
-journalctl --user -u rodrigodevbot -f
+./uninstall_service.sh
 ```
-
-Depois abra seu bot no Telegram e envie `/start`.
 
 ## Comandos disponíveis
 
