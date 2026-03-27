@@ -271,7 +271,7 @@ async def cmd_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🧠 Claude pensando... [{label}]")
 
     prompt_escaped = prompt.replace('"', '\\"')
-    cmd = f'claude -p "{prompt_escaped}" --no-input'
+    cmd = f'claude -p "{prompt_escaped}" --dangerously-skip-permissions'
 
     res = rodar(cmd, cwd=projeto_path(update.effective_chat.id), timeout=CLAUDE_TIMEOUT)
     await enviar_resultado(update, res, f"claude: {prompt[:80]}...")
