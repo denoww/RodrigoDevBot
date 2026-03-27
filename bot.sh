@@ -405,12 +405,97 @@ cmd_poll() {
     esac
 }
 
+cmd_setup_ec2() {
+    echo "══════════════════════════════════════════"
+    echo "🖥️  Setup remotedev para EC2/servidor"
+    echo "══════════════════════════════════════════"
+    echo ""
+
+    # Detectar OS
+    if command -v apt-get &>/dev/null; then
+        PKG_MANAGER="apt-get"
+        echo "📦 Instalando dependências (apt)..."
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq python3 python3-venv git ffmpeg
+    elif command -v yum &>/dev/null; then
+        PKG_MANAGER="yum"
+        echo "📦 Instalando dependências (yum)..."
+        sudo yum install -y -q python3 git ffmpeg
+    elif command -v dnf &>/dev/null; then
+        PKG_MANAGER="dnf"
+        echo "📦 Instalando dependências (dnf)..."
+        sudo dnf install -y -q python3 git ffmpeg
+    else
+        echo "⚠️  Gerenciador de pacotes não detectado. Instale manualmente: python3, python3-venv, git, ffmpeg"
+    fi
+
+    # Verificar Python
+    if ! command -v python3 &>/dev/null; then
+        echo "❌ python3 não encontrado. Instale e tente novamente."
+        exit 1
+    fi
+    echo "✅ Python: $(python3 --version)"
+
+    # Verificar git
+    if ! command -v git &>/dev/null; then
+        echo "❌ git não encontrado. Instale e tente novamente."
+        exit 1
+    fi
+    echo "✅ Git: $(git --version)"
+
+    # Criar venv se não existir
+    if [ ! -d "$BOT_DIR/venv" ]; then
+        echo ""
+        echo "🐍 Criando virtualenv..."
+        python3 -m venv "$BOT_DIR/venv"
+    fi
+
+    echo "📦 Instalando dependências Python..."
+    "$BOT_DIR/venv/bin/python3" -m pip install -q -r "$BOT_DIR/requirements.txt"
+    echo "✅ Dependências instaladas"
+
+    # Instalar Claude CLI
+    if ! command -v claude &>/dev/null; then
+        echo ""
+        echo "🧠 Instalando Claude CLI..."
+        if command -v npm &>/dev/null; then
+            npm install -g @anthropic-ai/claude-code
+            echo "✅ Claude CLI instalado"
+        else
+            echo "⚠️  npm não encontrado. Instale Node.js e rode:"
+            echo "   npm install -g @anthropic-ai/claude-code"
+        fi
+    else
+        echo "✅ Claude CLI: $(claude --version 2>/dev/null || echo 'instalado')"
+    fi
+
+    # Criar workspace se não existir
+    mkdir -p "$WORKSPACE"
+    echo "✅ Workspace: $WORKSPACE"
+
+    # Habilitar systemd para user
+    if command -v loginctl &>/dev/null; then
+        loginctl enable-linger "$USER" 2>/dev/null || true
+    fi
+    mkdir -p "$SERVICE_DIR"
+
+    echo ""
+    echo "══════════════════════════════════════════"
+    echo "✅ Setup concluído!"
+    echo ""
+    echo "Próximos passos:"
+    echo "  1. Clone seus projetos em ~/workspace/"
+    echo "  2. Rode: ./bot.sh install"
+    echo "══════════════════════════════════════════"
+}
+
 cmd_help() {
     echo "remotedev — Script centralizado"
     echo ""
     echo "Uso: ./bot.sh <comando> [argumentos]"
     echo ""
     echo "Comandos:"
+    echo "  setup_ec2                      Setup inicial para EC2/servidor"
     echo "  install                        Instala um novo bot (interativo)"
     echo "  uninstall                      Lista bots e remove o escolhido"
     echo "  list                           Lista bots instalados"
@@ -426,6 +511,7 @@ cmd_help() {
 # ── Main ─────────────────────────────────────────────────────────────
 
 case "${1:-}" in
+    setup_ec2)  cmd_setup_ec2 ;;
     install)    cmd_install ;;
     uninstall)  cmd_uninstall ;;
     list)       cmd_list ;;
