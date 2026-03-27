@@ -43,7 +43,7 @@ def logar_claude(label, cwd, prompt, res, texto_resposta):
 
 def rodar_claude(prompt, cwd, session_id=None):
     """Roda o Claude via stdin e retorna (res, texto_resposta, session_id)."""
-    flags = ['--dangerously-skip-permissions', '--output-format', 'json']
+    flags = ['--dangerously-skip-permissions', '--output-format', 'json', '--verbose']
     cmd_args = ['claude', '-p', '-'] + flags
     if session_id:
         cmd_args += ['--resume', session_id]
@@ -65,11 +65,7 @@ def rodar_claude(prompt, cwd, session_id=None):
 
         stdout = stdout.strip()
         stderr = stderr.strip()
-        truncated = False
-        if len(stdout) > MAX_STDOUT:
-            stdout = stdout[:MAX_STDOUT] + "\n\n… (truncado)"
-            truncated = True
-        res = {"stdout": stdout, "stderr": stderr, "code": proc.returncode, "truncated": truncated}
+        res = {"stdout": stdout, "stderr": stderr, "code": proc.returncode, "truncated": False}
 
         if proc.returncode and proc.returncode < 0:
             return res, "🛑 Comando cancelado.", None
@@ -82,6 +78,8 @@ def rodar_claude(prompt, cwd, session_id=None):
 
     texto_resposta = ""
     novo_session_id = None
+    thinking = []
+    tools_usadas = []
     try:
         data = json_mod.loads(res["stdout"])
         if isinstance(data, dict):
@@ -94,11 +92,38 @@ def rodar_claude(prompt, cwd, session_id=None):
                         texto_resposta = item.get("result") or item.get("text") or ""
                     if item.get("session_id"):
                         novo_session_id = item.get("session_id")
+                    # Extrair thinking e tools do verbose
+                    if item.get("type") == "assistant":
+                        msg = item.get("message", {})
+                        for block in msg.get("content", []):
+                            if isinstance(block, dict):
+                                if block.get("type") == "thinking":
+                                    t = block.get("thinking", "").strip()
+                                    if t:
+                                        thinking.append(t)
+                                elif block.get("type") == "tool_use":
+                                    name = block.get("name", "?")
+                                    inp = block.get("input", {})
+                                    if isinstance(inp, dict):
+                                        detalhe = inp.get("command") or inp.get("pattern") or inp.get("file_path") or ""
+                                        tools_usadas.append(f"{name}: {detalhe}" if detalhe else name)
+                                    else:
+                                        tools_usadas.append(name)
     except (json_mod.JSONDecodeError, TypeError, KeyError):
         texto_resposta = res["stdout"]
 
+    # Salvar thinking e tools no log
+    if thinking:
+        _claude_logger.info(f"🧠 Thinking:\n{'---\n'.join(thinking)}")
+    if tools_usadas:
+        _claude_logger.info(f"🔧 Tools: {', '.join(tools_usadas)}")
+
     if not texto_resposta:
         texto_resposta = "(sem resposta)"
+
+    # Truncar resposta final (não o JSON bruto)
+    if len(texto_resposta) > MAX_STDOUT:
+        texto_resposta = texto_resposta[:MAX_STDOUT] + "\n\n… (truncado)"
 
     return res, texto_resposta, novo_session_id
 
