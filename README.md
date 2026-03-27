@@ -54,13 +54,32 @@ grep -q 'TELEGRAM_DEV_CHAT_ID' ~/.bashrc && sed -i "s|export TELEGRAM_DEV_CHAT_I
 source ~/.bashrc
 ```
 
-### 5. Rodar o bot
+### 5. Registrar comandos no Telegram
+
+Fale com [@BotFather](https://t.me/BotFather), envie `/setcommands`, selecione seu bot e cole:
+
+```
+start - Menu de ajuda
+p - Trocar projeto
+bash - Executar comando no terminal
+claude - Claude Code no projeto
+git - Comandos git
+rails - Rails runner/console
+rake - Rake task
+log - Ultimas linhas do log
+ping - Verifica se desktop esta online
+id - Mostra seu chat_id
+```
+
+### 6. Rodar o bot
 
 ```bash
 python3 telegram_desktop_bot.py
 ```
 
-### 6. (Opcional) Configurar projetos
+Depois abra seu bot no Telegram e envie `/start`.
+
+### 7. (Opcional) Configurar projetos
 
 Edite o dict `PROJETOS` no arquivo `telegram_desktop_bot.py` com os caminhos dos seus projetos.
 
