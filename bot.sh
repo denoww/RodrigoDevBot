@@ -191,6 +191,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=$BOT_DIR
+ExecStartPre=/usr/bin/git -C $BOT_DIR pull --ff-only
 ExecStart=$BOT_DIR/venv/bin/python3 telegram_desktop_bot.py $BOT_NOME
 Restart=always
 RestartSec=5
