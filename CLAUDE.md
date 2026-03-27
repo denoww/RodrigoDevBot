@@ -30,3 +30,4 @@ Em produção roda como systemd user service (`remotedev-<nome>`).
 - Projetos são auto-descobertos de ~/workspace (qualquer diretório não-oculto)
 - Cada chat pode ter um projeto ativo por vez (estado em memória)
 - Bot roda em produção — testar antes de alterar handlers ou config
+- Ao adicionar/remover comandos: atualizar `BOTFATHER_COMMANDS` em `lib/config.py` (fonte única) e o `README.md`

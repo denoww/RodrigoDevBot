@@ -149,7 +149,7 @@ async def rodar_claude_completo(msg, chat_id, prompt):
 
         session_id = claude_sessions.get(cwd)
 
-        await msg.reply_text(f"🧠 {label}...")
+        await msg.reply_text(f"⏳ {label}...")
 
         log_prefix = "(continuação) " if session_id else ""
         logar_prompt(label, cwd, f"{log_prefix}{prompt}")
