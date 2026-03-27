@@ -99,7 +99,7 @@ cmd_install() {
     fi
 
     # Nome do bot
-    read -p "Nome do bot (ex: dev, prod): " BOT_NOME
+    read -p "Nome do bot (ex: dev_desktop, dev_notebook, analise_dados, limpeza_de_arquivos): " BOT_NOME
     BOT_NOME=$(echo "$BOT_NOME" | tr '[:upper:]' '[:lower:]')
 
     if [ -z "$BOT_NOME" ]; then
