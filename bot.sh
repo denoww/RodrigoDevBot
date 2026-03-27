@@ -189,6 +189,29 @@ except (KeyboardInterrupt, SystemExit):
         fi
     fi
 
+    # ffmpeg (para interpretar vídeos)
+    echo ""
+    read -p "🎬 Instalar suporte a vídeos? Requer ffmpeg (s/N): " INSTALAR_FFMPEG
+    if [ "$INSTALAR_FFMPEG" = "s" ] || [ "$INSTALAR_FFMPEG" = "S" ]; then
+        if ! command -v ffmpeg &>/dev/null; then
+            echo "📦 Instalando ffmpeg..."
+            if command -v apt-get &>/dev/null; then
+                sudo apt-get install -y -qq ffmpeg
+            elif command -v yum &>/dev/null; then
+                sudo yum install -y -q ffmpeg
+            elif command -v dnf &>/dev/null; then
+                sudo dnf install -y -q ffmpeg
+            else
+                echo "⚠️  Instale ffmpeg manualmente."
+            fi
+        fi
+        if command -v ffmpeg &>/dev/null; then
+            echo "✅ ffmpeg instalado"
+        fi
+    else
+        echo "⏭️  Pulado."
+    fi
+
     # Salvar config local
     cat > "$BOTS_DIR/$BOT_NOME.conf" << EOF
 BOT_TOKEN="$BOT_TOKEN"

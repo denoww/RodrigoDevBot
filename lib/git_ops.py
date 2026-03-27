@@ -190,19 +190,6 @@ async def cmd_push(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @autorizado
-async def cmd_git(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await exigir_projeto(update):
-        return
-
-    args = " ".join(context.args) if context.args else "status"
-    cmd = f"git {args}"
-
-    await update.message.reply_text(f"⏳ git {args}...")
-    res = rodar(cmd, cwd=projeto_path(update.effective_chat.id))
-    await enviar_resultado(update, res, cmd)
-
-
-@autorizado
 async def cmd_gitbranch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Troca de branch (cria se não existir) e faz git pull."""
     if not await exigir_projeto(update):

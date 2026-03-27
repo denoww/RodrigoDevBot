@@ -39,7 +39,7 @@ from lib.claude import (
     enviar_para_claude, rodar_claude_completo,
 )
 from lib.git_ops import (
-    cmd_diff, cmd_push, cmd_git, cmd_gitbranch, cmd_gitreset,
+    cmd_diff, cmd_push, cmd_gitbranch, cmd_gitreset,
     callback_branch, _enviar_diff, _gerar_commit_ia, git_push,
 )
 from lib.hooks import pos_push
@@ -169,13 +169,6 @@ async def processar_comando(chat_id, texto, msg, context):
             texto_resp += f"📝 Resumo: {resumo}\n\n"
         texto_resp += f"💡 Commit: {msg_commit or '(sem sugestão)'}"
         await msg.reply_text(texto_resp)
-
-    elif texto.startswith("/git"):
-        args = texto.split(" ", 1)[1] if " " in texto else "status"
-        cmd = f"git {args}"
-        await msg.reply_text(f"⏳ git {args}...")
-        res = rodar(cmd, cwd=cwd)
-        await msg.reply_text(res["stdout"] or res["stderr"] or "(sem saída)")
 
     else:
         await rodar_claude_completo(msg, chat_id, texto)
@@ -348,6 +341,89 @@ async def mensagem_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Erro ao processar imagem: {e}")
 
 
+@autorizado
+async def mensagem_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    video = update.message.video or update.message.video_note
+    if not video:
+        return
+
+    import shutil
+    if not shutil.which("ffmpeg"):
+        await update.message.reply_text("⚠️ ffmpeg não instalado. Rode ./bot.sh install para habilitar vídeos.")
+        return
+
+    if not await exigir_projeto(update):
+        return
+
+    caption = update.message.caption or ""
+    await update.message.reply_text("🎬 Processando vídeo...")
+
+    tmp_dir = tempfile.mkdtemp(prefix="remotedev_video_")
+    try:
+        # Baixar vídeo
+        file = await video.get_file()
+        video_path = os.path.join(tmp_dir, "video.mp4")
+        await file.download_to_drive(video_path)
+
+        partes_prompt = []
+
+        # Extrair frames (1 a cada 3 segundos, max 5 frames)
+        frames_dir = os.path.join(tmp_dir, "frames")
+        os.makedirs(frames_dir)
+        subprocess.run(
+            ["ffmpeg", "-i", video_path, "-vf", "fps=1/3", "-frames:v", "5", f"{frames_dir}/frame_%02d.jpg"],
+            capture_output=True, timeout=30,
+        )
+        frames = sorted([os.path.join(frames_dir, f) for f in os.listdir(frames_dir) if f.endswith(".jpg")])
+        if frames:
+            paths_str = ", ".join(frames)
+            partes_prompt.append(f"Frames do vídeo: {paths_str}")
+
+        # Extrair e transcrever áudio (se tiver OpenAI key)
+        openai_key = os.environ.get("OPENAI_API_KEY", "")
+        if openai_key:
+            audio_path = os.path.join(tmp_dir, "audio.ogg")
+            result = subprocess.run(
+                ["ffmpeg", "-i", video_path, "-vn", "-acodec", "libopus", audio_path],
+                capture_output=True, timeout=30,
+            )
+            if result.returncode == 0 and os.path.getsize(audio_path) > 0:
+                try:
+                    transcricao = await transcrever_audio(audio_path)
+                    if transcricao and transcricao.strip():
+                        partes_prompt.append(f"Áudio do vídeo: {transcricao}")
+                        await update.message.reply_text(f"📝 Áudio: {transcricao}")
+                except Exception:
+                    pass
+
+        if not partes_prompt:
+            await update.message.reply_text("⚠️ Não consegui extrair conteúdo do vídeo.")
+            return
+
+        # Montar prompt
+        contexto = "\n".join(partes_prompt)
+        if caption:
+            prompt = f"{contexto}\n\nPergunta do usuário: {caption}"
+        else:
+            prompt = f"{contexto}\n\nAnalise o conteúdo do vídeo. Seja direto e objetivo."
+
+        await enviar_para_claude(update, prompt)
+
+    except subprocess.TimeoutExpired:
+        await update.message.reply_text("⚠️ Vídeo muito longo ou pesado para processar.")
+    except Exception as e:
+        erro = str(e)
+        if "file is too big" in erro.lower() or "file_too_big" in erro.lower():
+            await update.message.reply_text("⚠️ Vídeo muito grande. Limite do Telegram: 20MB.")
+        elif "wrong file_id" in erro.lower() or "invalid" in erro.lower():
+            await update.message.reply_text("⚠️ Não consegui baixar o vídeo. Tente enviar novamente.")
+        else:
+            await update.message.reply_text(f"❌ Erro ao processar vídeo: {erro}")
+    finally:
+        import shutil as sh
+        sh.rmtree(tmp_dir, ignore_errors=True)
+
+
 # ══════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════
@@ -397,7 +473,6 @@ def main():
     app.add_handler(CommandHandler("gitdiff", cmd_diff))
     app.add_handler(CommandHandler("gitreset", cmd_gitreset))
     app.add_handler(CommandHandler("gitbranch", cmd_gitbranch))
-    app.add_handler(CommandHandler("git", cmd_git))
     app.add_handler(CommandHandler("gitpush", cmd_push))
     app.add_handler(CommandHandler("restart_bot", cmd_restart))
 
@@ -405,6 +480,9 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensagem_livre))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, mensagem_audio))
     app.add_handler(MessageHandler(filters.PHOTO, mensagem_foto))
+
+    # Vídeo → extrair frames + áudio → Claude
+    app.add_handler(MessageHandler(filters.VIDEO | filters.VIDEO_NOTE, mensagem_video))
 
     async def post_init(application):
         commands = []
