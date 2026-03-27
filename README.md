@@ -13,7 +13,7 @@ pip install -r requirements.txt
 
 ## Instalar um bot
 
-O script interativo pede nome, token e descobre o CHAT_ID automaticamente:
+Simples e fácil:
 
 ```bash
 ./bot.sh install
