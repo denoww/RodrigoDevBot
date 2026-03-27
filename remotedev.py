@@ -12,6 +12,7 @@ Uso:
 
 import os
 import sys
+import html
 import subprocess
 import tempfile
 from datetime import datetime
@@ -30,7 +31,7 @@ from lib.config import (
     PROJETOS, BOTFATHER_COMMANDS,
 )
 from lib.utils import (
-    estado, pendente,
+    estado, pendente, push_pendente,
     projeto_ativo, projeto_config, projeto_path, projeto_label,
     exigir_projeto, autorizado, rodar, enviar_resultado,
 )
@@ -40,7 +41,7 @@ from lib.claude import (
 )
 from lib.git_ops import (
     cmd_diff, cmd_push, cmd_gitbranch, cmd_gitreset,
-    callback_branch, _enviar_diff, _gerar_commit_ia, git_push,
+    callback_branch, callback_push, _enviar_diff, _gerar_commit_ia, git_push,
 )
 from lib.hooks import pos_push
 
@@ -139,26 +140,37 @@ async def processar_comando(chat_id, texto, msg, context):
 
     elif texto.startswith("/gitpush"):
         msg_commit = texto.split(" ", 1)[1].strip() if " " in texto else ""
+
+        status = rodar("git status --short", cwd=cwd)
+        if not status["stdout"]:
+            await msg.reply_text("⚠️ Nenhuma alteração encontrada para commitar.")
+            return
+
+        await _enviar_diff(msg, cwd, label)
+
         if not msg_commit:
-            status = rodar("git status --short", cwd=cwd)
-            if not status["stdout"]:
-                await msg.reply_text("⚠️ Nenhuma alteração encontrada para commitar.")
-                return
-            await msg.reply_text(f"🤖 [{label}] Gerando mensagem de commit...")
+            aguarde = await msg.reply_text(f"🤖 [{label}] Gerando mensagem de commit...")
             _, msg_commit = await _gerar_commit_ia(cwd)
+            try:
+                await aguarde.delete()
+            except Exception:
+                pass
             if not msg_commit:
                 await msg.reply_text("⚠️ Não consegui gerar mensagem de commit.")
                 return
-        await msg.reply_text(f"⏳ Push: {msg_commit}")
-        res = rodar("git add -A", cwd=cwd)
-        if res["code"] == 0:
-            res = rodar(f'git commit -m "{msg_commit}"', cwd=cwd)
-            if res["code"] == 0:
-                res = git_push(cwd)
-                await msg.reply_text(res["stdout"] or res["stderr"] or "(sem saída)")
-                await pos_push(msg, cwd, res)
-                return
-        await msg.reply_text(res["stdout"] or res["stderr"] or "(sem saída)")
+
+        push_pendente[chat_id] = {"cwd": cwd, "msg_commit": msg_commit}
+        teclado = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Confirmar Push", callback_data="push:sim"),
+                InlineKeyboardButton("❌ Cancelar", callback_data="push:nao"),
+            ]
+        ])
+        await msg.reply_text(
+            f"💡 <b>Commit:</b>\n<code>{html.escape(msg_commit)}</code>\n\nConfirma o push?",
+            parse_mode="HTML",
+            reply_markup=teclado,
+        )
 
     elif texto.startswith("/gitdiff"):
         await _enviar_diff(msg, cwd, label)
@@ -463,6 +475,7 @@ def main():
     app.add_handler(CommandHandler("projeto", cmd_projeto))
     app.add_handler(CallbackQueryHandler(callback_projeto, pattern=r"^projeto:"))
     app.add_handler(CallbackQueryHandler(callback_branch, pattern=r"^branch:"))
+    app.add_handler(CallbackQueryHandler(callback_push, pattern=r"^push:"))
 
     # Comandos
     app.add_handler(CommandHandler("start", cmd_start))

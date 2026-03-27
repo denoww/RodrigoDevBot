@@ -5,7 +5,7 @@ import asyncio
 import subprocess
 
 from lib.config import MAX_DIFF
-from lib.utils import rodar, projeto_path, projeto_label, enviar_resultado, exigir_projeto, autorizado
+from lib.utils import rodar, projeto_path, projeto_label, enviar_resultado, exigir_projeto, autorizado, push_pendente
 from lib.hooks import pos_push
 from lib.claude import rodar_claude
 
@@ -148,7 +148,7 @@ async def cmd_diff(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @autorizado
 async def cmd_push(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Faz add, commit e push. Se não passar mensagem, gera via IA."""
+    """Mostra diff e commit, pede confirmação antes de fazer push."""
     if not await exigir_projeto(update):
         return
 
@@ -157,18 +157,62 @@ async def cmd_push(update: Update, context: ContextTypes.DEFAULT_TYPE):
     label = projeto_label(chat_id)
     msg_commit = " ".join(context.args).strip() if context.args else ""
 
+    status = rodar("git status --short", cwd=cwd)
+    if not status["stdout"]:
+        await update.message.reply_text("⚠️ Nenhuma alteração encontrada para commitar.")
+        return
+
+    # Mostra diff
+    await _enviar_diff(update.message, cwd, label)
+
+    # Gera ou usa mensagem de commit
     if not msg_commit:
-        status = rodar("git status --short", cwd=cwd)
-        if not status["stdout"]:
-            await update.message.reply_text("⚠️ Nenhuma alteração encontrada para commitar.")
-            return
-        await update.message.reply_text(f"🤖 [{label}] Gerando mensagem de commit...")
-        resumo, msg_commit = await _gerar_commit_ia(cwd)
+        aguarde = await update.message.reply_text(f"🤖 [{label}] Gerando mensagem de commit...")
+        _, msg_commit = await _gerar_commit_ia(cwd)
+        try:
+            await aguarde.delete()
+        except Exception:
+            pass
         if not msg_commit:
             await update.message.reply_text("⚠️ Não consegui gerar mensagem de commit.")
             return
 
-    await update.message.reply_text(f"⏳ Push: {msg_commit}")
+    # Salva dados e pede confirmação
+    push_pendente[chat_id] = {"cwd": cwd, "msg_commit": msg_commit}
+    teclado = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Confirmar Push", callback_data="push:sim"),
+            InlineKeyboardButton("❌ Cancelar", callback_data="push:nao"),
+        ]
+    ])
+    await update.message.reply_text(
+        f"💡 <b>Commit:</b>\n<code>{html.escape(msg_commit)}</code>\n\nConfirma o push?",
+        parse_mode="HTML",
+        reply_markup=teclado,
+    )
+
+
+@autorizado
+async def callback_push(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Executa ou cancela o push pendente."""
+    query = update.callback_query
+    await query.answer()
+
+    chat_id = update.effective_chat.id
+    acao = query.data.replace("push:", "")
+
+    dados = push_pendente.pop(chat_id, None)
+    if not dados:
+        await query.edit_message_text("⚠️ Nenhum push pendente.")
+        return
+
+    if acao != "sim":
+        await query.edit_message_text("❌ Push cancelado.")
+        return
+
+    cwd = dados["cwd"]
+    msg_commit = dados["msg_commit"]
+    await query.edit_message_text(f"⏳ Push: {msg_commit}")
 
     res = rodar("git add -A", cwd=cwd)
     if res["code"] != 0:
@@ -179,7 +223,7 @@ async def cmd_push(update: Update, context: ContextTypes.DEFAULT_TYPE):
     res = rodar(cmd_commit, cwd=cwd)
     if res["code"] != 0:
         if "nothing to commit" in (res["stdout"] + res["stderr"]):
-            await update.message.reply_text("⚠️ Nada para commitar.")
+            await query.message.reply_text("⚠️ Nada para commitar.")
             return
         await enviar_resultado(update, res, cmd_commit)
         return

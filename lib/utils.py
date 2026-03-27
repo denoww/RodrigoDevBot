@@ -12,6 +12,7 @@ from lib.config import (
 # Estado global
 estado = {}
 pendente = {}  # chat_id → mensagem original pendente após escolha de projeto
+push_pendente = {}  # chat_id → {cwd, msg_commit} aguardando confirmação
 
 
 def projeto_ativo(chat_id: int):
