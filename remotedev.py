@@ -489,12 +489,13 @@ def rodar_claude(prompt_escaped, cwd, session_id=None):
         proc = subprocess.Popen(
             cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             cwd=cwd, text=True, env={**os.environ, "TERM": "dumb"},
+            start_new_session=True,
         )
         claude_processos[cwd] = proc
         try:
             stdout, stderr = proc.communicate(timeout=CLAUDE_TIMEOUT)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            os.killpg(os.getpgid(proc.pid), 9)
             stdout, stderr = proc.communicate()
         finally:
             claude_processos.pop(cwd, None)
@@ -586,7 +587,10 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     proc = claude_processos.get(cwd)
 
     if proc and proc.poll() is None:
-        proc.kill()
+        try:
+            os.killpg(os.getpgid(proc.pid), 9)
+        except ProcessLookupError:
+            pass
         claude_processos.pop(cwd, None)
         await update.message.reply_text(f"🛑 Comando cancelado! [{label}]")
     else:

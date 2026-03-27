@@ -46,17 +46,4 @@ Todos os comandos que recebem nome do bot são opcionais — se não passar, ele
 
 ## Comandos disponíveis no Telegram
 
-| Comando | Descrição |
-|---------|-----------|
-| `/start` | Menu de ajuda |
-| `/p` | Trocar projeto (botões) |
-| `/p nome` | Trocar projeto direto |
-| `/bash comando` | Executa qualquer comando |
-| `/claude prompt` | Claude Code no projeto |
-| `/git args` | Git (pull, push, status...) |
-| `/rails args` | Rails runner/console |
-| `/rake task` | Rake task |
-| `/log N` | Últimas N linhas do log |
-| `/ping` | Verifica se desktop está online |
-| `/id` | Mostra seu chat_id |
-| `/restart` | Reinicia o bot |
+Vá no bot Telegram e digite `/` para ver os comandos.
