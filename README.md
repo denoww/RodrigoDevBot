@@ -19,14 +19,6 @@ O script interativo pede nome, token e descobre o CHAT_ID automaticamente:
 ./bot.sh install
 ```
 
-Passo a passo que o script executa:
-1. Pergunta o **nome** do bot (ex: `dev`, `prod`)
-2. Pede o **TOKEN** (que você copia do [@BotFather](https://t.me/BotFather))
-3. Descobre o **CHAT_ID** — basta mandar uma mensagem pro bot no Telegram
-4. Salva tudo no `~/.bashrc` e cria o serviço systemd
-5. Inicia o bot automaticamente
-
-Para adicionar outro bot, rode `./bot.sh install` novamente com outro nome.
 
 ## Comandos disponíveis no Telegram
 
