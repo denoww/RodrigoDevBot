@@ -50,27 +50,27 @@ escolher_bot() {
     done
 
     if [ ${#bots[@]} -eq 0 ]; then
-        echo "Nenhum bot instalado."
+        echo "Nenhum bot instalado." >&2
         exit 1
     fi
 
-    echo "Bots instalados:"
+    echo "Bots instalados:" >&2
     for i in "${!bots[@]}"; do
         nome="${bots[$i]}"
         status=$(systemctl --user is-active "rodrigodevbot-$nome" 2>/dev/null || true)
         if [ "$status" = "active" ]; then
-            echo "  $((i+1))) 🟢 $nome"
+            echo "  $((i+1))) 🟢 $nome" >&2
         else
-            echo "  $((i+1))) 🔴 $nome"
+            echo "  $((i+1))) 🔴 $nome" >&2
         fi
     done
 
-    echo ""
+    echo "" >&2
     read -p "Qual bot deseja $acao? (número): " escolha
     idx=$((escolha - 1))
 
     if [ $idx -lt 0 ] || [ $idx -ge ${#bots[@]} ]; then
-        echo "❌ Opção inválida."
+        echo "❌ Opção inválida." >&2
         exit 1
     fi
 
