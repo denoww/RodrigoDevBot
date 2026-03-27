@@ -49,16 +49,19 @@ restart - Reinicia o bot
 ## Gerenciar bots
 
 ```bash
-./bot.sh list                 # lista bots instalados
-./bot.sh status               # status de todos os bots
-./bot.sh restart dev           # reinicia o bot dev
-./bot.sh stop dev              # para o bot dev
-./bot.sh start dev             # inicia o bot dev
-./bot.sh logs dev              # logs do serviço
-./bot.sh logs-claude dev       # logs do Claude
-./bot.sh logs-claude dev scsip # filtra por projeto
-./bot.sh uninstall             # lista bots e remove o escolhido
+./bot.sh list                          # lista bots instalados
+./bot.sh status                        # status de todos os bots
+./bot.sh restart                       # pergunta qual bot reiniciar
+./bot.sh restart dev_desktop           # reinicia direto
+./bot.sh stop dev_desktop              # para o bot
+./bot.sh start dev_desktop             # inicia o bot
+./bot.sh logs dev_desktop              # logs do serviço
+./bot.sh logs-claude dev_desktop       # logs do Claude
+./bot.sh logs-claude dev_desktop scsip # filtra por projeto
+./bot.sh uninstall                     # lista bots e remove o escolhido
 ```
+
+Todos os comandos que recebem nome do bot são opcionais — se não passar, ele lista os bots e pergunta qual.
 
 ## Comandos disponíveis no Telegram
 
