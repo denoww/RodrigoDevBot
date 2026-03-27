@@ -205,13 +205,15 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🤖 <b>Bot [{BOT_NOME}] ativo!</b>\n"
         f"Projeto atual: {label}\n\n"
+        "<b>Claude Code:</b>\n"
+        "Envie texto livre → vai pro Claude (mantém contexto)\n"
+        "/new — nova sessão (limpa contexto)\n"
+        "/c <code>prompt</code> — atalho para Claude\n\n"
         "<b>Projeto:</b>\n"
         "/p — trocar projeto (botões)\n"
         "/p <code>nome</code> — trocar direto\n\n"
         "<b>Comandos:</b>\n"
-        "/bash <code>comando</code> — executa qualquer comando\n"
-        "/c <code>prompt</code> — Claude Code (nova conversa)\n"
-        "/cc <code>prompt</code> — Claude Code (continua conversa)\n"
+        "/bash <code>comando</code> — executa no terminal\n"
         "/git <code>args</code> — git (pull, push, status...)\n"
         "/rails <code>args</code> — rails runner/console\n"
         "/rake <code>task</code> — rake task\n"
@@ -285,19 +287,20 @@ async def processar_comando(chat_id, texto, msg, context):
     label = projeto_label(chat_id)
 
     if texto.startswith("/c ") or texto.startswith("/claude "):
-        # Extrair prompt
         prompt = texto.split(" ", 1)[1] if " " in texto else ""
         if not prompt:
             return
         await msg.reply_text(f"🧠 Claude pensando... [{label}]")
         prompt_escaped = prompt.replace('"', '\\"')
+        hash_antes = git_remote_hash(cwd)
         res, texto_resposta, session_id = rodar_claude(prompt_escaped, cwd)
         if session_id:
             claude_sessions[cwd] = session_id
         logar_claude(label, cwd, prompt, res, texto_resposta)
         res["stdout"] = texto_resposta
         await msg.reply_text(texto_resposta or "(sem resposta)")
-        hooks_msgs = executar_hooks(cwd, prompt, texto_resposta)
+        eventos = detectar_eventos(cwd, hash_antes)
+        hooks_msgs = executar_hooks(cwd, eventos)
         for h in hooks_msgs:
             await msg.reply_text(h)
 
@@ -310,13 +313,15 @@ async def processar_comando(chat_id, texto, msg, context):
             pass  # sem sessão anterior, inicia nova
         await msg.reply_text(f"🧠 Claude continuando... [{label}]")
         prompt_escaped = prompt.replace('"', '\\"')
+        hash_antes = git_remote_hash(cwd)
         res, texto_resposta, novo_session_id = rodar_claude(prompt_escaped, cwd, session_id)
         if novo_session_id:
             claude_sessions[cwd] = novo_session_id
         logar_claude(label, cwd, f"(continuação) {prompt}", res, texto_resposta)
         res["stdout"] = texto_resposta
         await msg.reply_text(texto_resposta or "(sem resposta)")
-        hooks_msgs = executar_hooks(cwd, prompt, texto_resposta)
+        eventos = detectar_eventos(cwd, hash_antes)
+        hooks_msgs = executar_hooks(cwd, eventos)
         for h in hooks_msgs:
             await msg.reply_text(h)
 
@@ -390,14 +395,37 @@ def carregar_hooks(cwd):
         return []
 
 
-def executar_hooks(cwd, prompt, resposta):
-    """Verifica hooks do projeto e executa os que casam com o prompt ou resposta."""
+def git_remote_hash(cwd):
+    """Retorna o hash do remote origin/main (ou HEAD se falhar)."""
+    try:
+        res = subprocess.run(
+            ["git", "rev-parse", "origin/main"],
+            cwd=cwd, capture_output=True, text=True, timeout=10,
+        )
+        return res.stdout.strip() if res.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def detectar_eventos(cwd, hash_antes):
+    """Detecta eventos comparando estado do git antes e depois."""
+    eventos = set()
+    if hash_antes:
+        # Atualizar referências remotas
+        subprocess.run(["git", "fetch", "--quiet"], cwd=cwd, capture_output=True, timeout=10)
+        hash_depois = git_remote_hash(cwd)
+        if hash_depois and hash_depois != hash_antes:
+            eventos.add("git_pushed")
+    return eventos
+
+
+def executar_hooks(cwd, eventos):
+    """Verifica hooks do projeto e executa os que casam com eventos detectados."""
     hooks = carregar_hooks(cwd)
     resultados = []
-    texto_busca = f"{prompt}\n{resposta}".lower()
     for hook in hooks:
-        match = hook.get("match", "").lower()
-        if match and match in texto_busca:
+        trigger = hook.get("trigger", "")
+        if trigger and trigger in eventos:
             run_cmd = hook.get("run", "")
             msg = hook.get("msg", f"Hook executado: {run_cmd}")
             if run_cmd:
@@ -457,72 +485,64 @@ def logar_claude(label, cwd, prompt, res, texto_resposta):
             f.write(f"Erro:\n{res['stderr']}\n")
 
 
-@autorizado
-async def cmd_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    prompt = " ".join(context.args) if context.args else ""
-    if not prompt:
-        await update.message.reply_text("Uso: /c <prompt>\nUso: /cc <prompt> — continua última conversa")
-        return
-
-    if not await exigir_projeto(update):
-        return
-
-    label = projeto_label(update.effective_chat.id)
-    cwd = projeto_path(update.effective_chat.id)
-    await update.message.reply_text(f"🧠 Claude pensando... [{label}]")
-
-    prompt_escaped = prompt.replace('"', '\\"')
-    res, texto_resposta, session_id = rodar_claude(prompt_escaped, cwd)
-
-    # Salvar sessão do projeto para /cc
-    if session_id:
-        claude_sessions[cwd] = session_id
-
-    logar_claude(label, cwd, prompt, res, texto_resposta)
-
-    res["stdout"] = texto_resposta
-    await enviar_resultado(update, res, f"claude: {prompt[:80]}...")
-
-    # Executar hooks pós-Claude
-    hooks_msgs = executar_hooks(cwd, prompt, texto_resposta)
-    for msg in hooks_msgs:
-        await update.message.reply_text(msg)
-
-
-@autorizado
-async def cmd_claude_continue(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    prompt = " ".join(context.args) if context.args else ""
-    if not prompt:
-        await update.message.reply_text("Uso: /cc <prompt> — continua última conversa")
-        return
-
-    if not await exigir_projeto(update):
-        return
-
-    label = projeto_label(update.effective_chat.id)
-    cwd = projeto_path(update.effective_chat.id)
+async def enviar_para_claude(update: Update, prompt: str):
+    """Handler unificado do Claude — mantém sessão por projeto."""
+    chat_id = update.effective_chat.id
+    label = projeto_label(chat_id)
+    cwd = projeto_path(chat_id)
     session_id = claude_sessions.get(cwd)
+    msg = update.message
 
-    if not session_id:
-        pass  # sem sessão anterior, inicia nova
-
-    await update.message.reply_text(f"🧠 Claude continuando... [{label}]")
+    if session_id:
+        await msg.reply_text(f"🧠 Claude (continuando)... [{label}]")
+    else:
+        await msg.reply_text(f"🧠 Claude (nova sessão)... [{label}]")
 
     prompt_escaped = prompt.replace('"', '\\"')
+    hash_antes = git_remote_hash(cwd)
     res, texto_resposta, novo_session_id = rodar_claude(prompt_escaped, cwd, session_id)
 
     if novo_session_id:
         claude_sessions[cwd] = novo_session_id
 
-    logar_claude(label, cwd, f"(continuação) {prompt}", res, texto_resposta)
+    log_prefix = "(continuação) " if session_id else ""
+    logar_claude(label, cwd, f"{log_prefix}{prompt}", res, texto_resposta)
 
     res["stdout"] = texto_resposta
     await enviar_resultado(update, res, f"claude: {prompt[:80]}...")
 
     # Executar hooks pós-Claude
-    hooks_msgs = executar_hooks(cwd, prompt, texto_resposta)
-    for msg in hooks_msgs:
-        await update.message.reply_text(msg)
+    eventos = detectar_eventos(cwd, hash_antes)
+    hooks_msgs = executar_hooks(cwd, eventos)
+    for h in hooks_msgs:
+        await msg.reply_text(h)
+
+
+@autorizado
+async def cmd_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    prompt = " ".join(context.args) if context.args else ""
+    if not prompt:
+        await update.message.reply_text(
+            "Uso: envie texto livre para o Claude\n"
+            "/c <code>prompt</code> — atalho para Claude\n"
+            "/new — nova sessão (limpa contexto)")
+        return
+
+    if not await exigir_projeto(update):
+        return
+
+    await enviar_para_claude(update, prompt)
+
+
+@autorizado
+async def cmd_new_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await exigir_projeto(update):
+        return
+
+    cwd = projeto_path(update.effective_chat.id)
+    label = projeto_label(update.effective_chat.id)
+    claude_sessions.pop(cwd, None)
+    await update.message.reply_text(f"✅ Nova sessão iniciada! [{label}]")
 
 
 @autorizado
@@ -600,9 +620,7 @@ async def mensagem_livre(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await exigir_projeto(update):
         return
 
-    await update.message.reply_text("⏳ Executando...")
-    res = rodar(texto, cwd=projeto_path(update.effective_chat.id))
-    await enviar_resultado(update, res, texto)
+    await enviar_para_claude(update, texto)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -653,14 +671,15 @@ def main():
     app.add_handler(CommandHandler("bash", cmd_bash))
     app.add_handler(CommandHandler("claude", cmd_claude))
     app.add_handler(CommandHandler("c", cmd_claude))
-    app.add_handler(CommandHandler("cc", cmd_claude_continue))
+    app.add_handler(CommandHandler("cc", cmd_claude))
+    app.add_handler(CommandHandler("new", cmd_new_session))
     app.add_handler(CommandHandler("git", cmd_git))
     app.add_handler(CommandHandler("rails", cmd_rails))
     app.add_handler(CommandHandler("rake", cmd_rake))
     app.add_handler(CommandHandler("log", cmd_log))
     app.add_handler(CommandHandler("restart", cmd_restart))
 
-    # Mensagem livre → bash
+    # Mensagem livre → Claude
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensagem_livre))
 
     async def post_init(application):
