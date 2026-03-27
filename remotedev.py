@@ -74,6 +74,22 @@ PROJETOS = descobrir_projetos(WORKSPACE)
 
 PROJETO_PADRAO = None
 
+BOTFATHER_COMMANDS = (
+    "start - Menu de ajuda\n"
+    "help - Menu de ajuda\n"
+    "new - Nova sessao Claude (limpa contexto)\n"
+    "p - Trocar projeto\n"
+    "diff - Ver alteracoes pendentes\n"
+    "diffia - Gerar mensagem de commit com IA\n"
+    "bash - Executar comando no terminal\n"
+    "git - Comandos git\n"
+    "gitpush - Add, commit e push automatico\n"
+    "ping_pc - Verifica se desktop esta online\n"
+    "meu_chat_id - Mostra seu chat_id\n"
+    "setcommands - Instrucoes pro BotFather\n"
+    "restart_bot - Reinicia o bot"
+)
+
 DEFAULT_TIMEOUT = 120
 CLAUDE_TIMEOUT = 600
 
@@ -204,22 +220,19 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     label = projeto_label(chat_id)
 
+    # Gerar lista de comandos a partir de BOTFATHER_COMMANDS
+    comandos_help = "\n".join(
+        f"/{line.split(' - ')[0]} — {line.split(' - ')[1]}"
+        for line in BOTFATHER_COMMANDS.strip().split("\n")
+        if " - " in line
+    )
     await update.message.reply_text(
         f"🤖 <b>Bot [{BOT_NOME}] ativo!</b>\n"
         f"Projeto atual: {label}\n\n"
         "<b>Claude Code:</b>\n"
-        "Envie texto livre → vai pro Claude (mantém contexto)\n"
+        "Envie texto livre, áudio ou foto → vai pro Claude\n"
         "/new — nova sessão (limpa contexto)\n\n"
-        "<b>Projeto:</b>\n"
-        "/p — trocar projeto (botões)\n"
-        "/p <code>nome</code> — trocar direto\n\n"
-        "<b>Comandos:</b>\n"
-        "/bash <code>comando</code> — executa no terminal\n"
-        "/gitpush <code>msg</code> — add+commit+push (sem msg = auto)\n"
-        "/git <code>args</code> — git (pull, push, status...)\n"
-        "/ping_pc — verifica se desktop está online\n"
-        "/meu_chat_id — mostra seu chat_id\n"
-        "/restart_bot — reinicia o bot",
+        f"<b>Comandos:</b>\n{comandos_help}",
         parse_mode="HTML",
     )
 
@@ -289,8 +302,7 @@ async def processar_comando(chat_id, texto, msg, context):
         prompt = texto.split(" ", 1)[1] if " " in texto else ""
         if not prompt:
             return
-        # Delegar para o handler unificado via helper
-        await _processar_claude_pendente(msg, cwd, label, prompt)
+        await _rodar_claude_completo(msg, chat_id, prompt)
 
     elif texto.startswith("/bash "):
         cmd = texto.split(" ", 1)[1]
@@ -312,18 +324,15 @@ async def processar_comando(chat_id, texto, msg, context):
             if res["code"] == 0:
                 res = rodar("git push", cwd=cwd, timeout=60)
                 await msg.reply_text(res["stdout"] or res["stderr"] or "(sem saída)")
-                if res["code"] == 0:
-                    for h in executar_hooks(cwd, {"git_pushed"}):
-                        await msg.reply_text(h)
-                    # Auto-restart se o push foi no repo do próprio bot
-                    if os.path.realpath(cwd) == os.path.realpath(BOT_REPO_DIR):
-                        await msg.reply_text(f"🔄 Reiniciando bot [{BOT_NOME}] em 2s...")
-                        subprocess.Popen(
-                            f"sleep 2 && systemctl --user restart {BOT_SERVICE}",
-                            shell=True,
-                        )
+                await pos_push(msg, cwd, res)
                 return
         await msg.reply_text(res["stdout"] or res["stderr"] or "(sem saída)")
+
+    elif texto.startswith("/diffia"):
+        pass  # tratado pelo CommandHandler
+
+    elif texto.startswith("/diff"):
+        await _enviar_diff(msg, cwd, label)
 
     elif texto.startswith("/git"):
         args = texto.split(" ", 1)[1] if " " in texto else "status"
@@ -334,17 +343,22 @@ async def processar_comando(chat_id, texto, msg, context):
 
     else:
         # Mensagem livre → Claude
-        await _processar_claude_pendente(msg, cwd, label, texto)
+        await _rodar_claude_completo(msg, chat_id, texto)
 
 
-async def _processar_claude_pendente(msg, cwd, label, prompt):
-    """Executa Claude para comandos pendentes (após seleção de projeto)."""
+async def _rodar_claude_completo(msg, chat_id, prompt):
+    """Executa Claude com sessão, log, hooks e resposta. Usado por todos os caminhos."""
+    cwd = projeto_path(chat_id)
+    label = projeto_label(chat_id)
     session_id = claude_sessions.get(cwd)
 
     if session_id:
         await msg.reply_text(f"🧠 Claude (continuando)... [{label}]")
     else:
         await msg.reply_text(f"🧠 Claude (nova sessão)... [{label}]")
+
+    log_prefix = "(continuação) " if session_id else ""
+    logar_prompt(label, cwd, f"{log_prefix}{prompt}")
 
     prompt_escaped = prompt.replace('"', '\\"')
     hash_antes = git_remote_hash(cwd)
@@ -353,7 +367,6 @@ async def _processar_claude_pendente(msg, cwd, label, prompt):
     if novo_session_id:
         claude_sessions[cwd] = novo_session_id
 
-    log_prefix = "(continuação) " if session_id else ""
     logar_claude(label, cwd, f"{log_prefix}{prompt}", res, texto_resposta)
 
     await msg.reply_text(texto_resposta or "(sem resposta)")
@@ -452,6 +465,17 @@ def executar_hooks(cwd, eventos):
     return resultados
 
 
+async def pos_push(update_or_msg, cwd, res):
+    """Hooks e auto-restart após push bem-sucedido."""
+    msg = update_or_msg.message if hasattr(update_or_msg, 'message') else update_or_msg
+    if res["code"] == 0:
+        for h in executar_hooks(cwd, {"git_pushed"}):
+            await msg.reply_text(h)
+        if os.path.realpath(cwd) == os.path.realpath(BOT_REPO_DIR):
+            await msg.reply_text(f"🔄 Reiniciando bot [{BOT_NOME}] em 2s...")
+            subprocess.Popen(f"sleep 2 && systemctl --user restart {BOT_SERVICE}", shell=True)
+
+
 def rodar_claude(prompt_escaped, cwd, session_id=None):
     """Roda o Claude e retorna (res, texto_resposta, session_id)."""
 
@@ -488,14 +512,22 @@ def rodar_claude(prompt_escaped, cwd, session_id=None):
 
     return res, texto_resposta, novo_session_id
 
-def logar_claude(label, cwd, prompt, res, texto_resposta):
-    """Salva no log do Claude."""
-    log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"claude-{BOT_NOME}.log")
-    with open(log_file, "a") as f:
+LOG_FILE_CLAUDE = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"claude-{BOT_NOME}.log")
+
+
+def logar_prompt(label, cwd, prompt):
+    """Loga o prompt imediatamente (antes do Claude processar)."""
+    with open(LOG_FILE_CLAUDE, "a") as f:
         f.write(f"\n{'='*60}\n")
         f.write(f"[{datetime.now().strftime('%d/%m/%Y %H:%M:%S')}] {label}\n")
         f.write(f"Projeto: {cwd}\n")
         f.write(f"Prompt: {prompt}\n")
+        f.write(f"⏳ Aguardando Claude...\n")
+
+
+def logar_claude(label, cwd, prompt, res, texto_resposta):
+    """Salva resposta do Claude no log (complementa o logar_prompt)."""
+    with open(LOG_FILE_CLAUDE, "a") as f:
         f.write(f"Exit: {res['code']}\n")
         if texto_resposta:
             f.write(f"Resposta:\n{texto_resposta}\n")
@@ -504,36 +536,8 @@ def logar_claude(label, cwd, prompt, res, texto_resposta):
 
 
 async def enviar_para_claude(update: Update, prompt: str):
-    """Handler unificado do Claude — mantém sessão por projeto."""
-    chat_id = update.effective_chat.id
-    label = projeto_label(chat_id)
-    cwd = projeto_path(chat_id)
-    session_id = claude_sessions.get(cwd)
-    msg = update.message
-
-    if session_id:
-        await msg.reply_text(f"🧠 Claude (continuando)... [{label}]")
-    else:
-        await msg.reply_text(f"🧠 Claude (nova sessão)... [{label}]")
-
-    prompt_escaped = prompt.replace('"', '\\"')
-    hash_antes = git_remote_hash(cwd)
-    res, texto_resposta, novo_session_id = rodar_claude(prompt_escaped, cwd, session_id)
-
-    if novo_session_id:
-        claude_sessions[cwd] = novo_session_id
-
-    log_prefix = "(continuação) " if session_id else ""
-    logar_claude(label, cwd, f"{log_prefix}{prompt}", res, texto_resposta)
-
-    res["stdout"] = texto_resposta
-    await enviar_resultado(update, res, f"claude: {prompt[:80]}...")
-
-    # Executar hooks pós-Claude
-    eventos = detectar_eventos(cwd, hash_antes)
-    hooks_msgs = executar_hooks(cwd, eventos)
-    for h in hooks_msgs:
-        await msg.reply_text(h)
+    """Handler unificado do Claude — delega para _rodar_claude_completo."""
+    await _rodar_claude_completo(update.message, update.effective_chat.id, prompt)
 
 
 
@@ -676,20 +680,7 @@ async def cmd_push(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # git push
     res = rodar("git push", cwd=cwd, timeout=60)
     await enviar_resultado(update, res, f"git push ({msg_commit})")
-
-    # Executar hooks de push
-    eventos = {"git_pushed"} if res["code"] == 0 else set()
-    hooks_msgs = executar_hooks(cwd, eventos)
-    for h in hooks_msgs:
-        await update.message.reply_text(h)
-
-    # Auto-restart se o push foi no repo do próprio bot
-    if res["code"] == 0 and os.path.realpath(cwd) == os.path.realpath(BOT_REPO_DIR):
-        await update.message.reply_text(f"🔄 Reiniciando bot [{BOT_NOME}] em 2s...")
-        subprocess.Popen(
-            f"sleep 2 && systemctl --user restart {BOT_SERVICE}",
-            shell=True,
-        )
+    await pos_push(update, cwd, res)
 
 
 @autorizado
@@ -705,6 +696,116 @@ async def cmd_git(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await enviar_resultado(update, res, cmd)
 
 
+
+
+async def _enviar_diff(msg, cwd, label):
+    """Mostra alterações pendentes do git."""
+    status = rodar("git status --short", cwd=cwd)
+    if not status["stdout"]:
+        await msg.reply_text(f"✅ [{label}] Nenhuma alteração pendente.")
+        return
+
+    linhas = [l for l in status["stdout"].split("\n") if l.strip()]
+    added = [l for l in linhas if l.startswith("?") or l.startswith("A")]
+    modified = [l for l in linhas if l.startswith("M") or l.startswith(" M")]
+    deleted = [l for l in linhas if l.startswith("D") or l.startswith(" D")]
+
+    resumo = []
+    if added:
+        resumo.append(f"📄 {len(added)} novo(s)")
+    if modified:
+        resumo.append(f"✏️ {len(modified)} modificado(s)")
+    if deleted:
+        resumo.append(f"🗑️ {len(deleted)} removido(s)")
+
+    diff_stat = rodar("git diff --stat", cwd=cwd)
+    texto = f"📊 [{label}] {', '.join(resumo)}\n\n"
+    texto += f"<pre>{html.escape(status['stdout'])}</pre>"
+    if diff_stat["stdout"]:
+        texto += f"\n\n<pre>{html.escape(diff_stat['stdout'])}</pre>"
+
+    try:
+        await msg.reply_text(texto, parse_mode="HTML")
+    except Exception:
+        await msg.reply_text(texto)
+
+
+@autorizado
+async def cmd_diff(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await exigir_projeto(update):
+        return
+    chat_id = update.effective_chat.id
+    await _enviar_diff(update.message, projeto_path(chat_id), projeto_label(chat_id))
+
+
+@autorizado
+async def cmd_diffia(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gera mensagem de commit inteligente usando Claude baseado no diff atual."""
+    if not await exigir_projeto(update):
+        return
+    chat_id = update.effective_chat.id
+    cwd = projeto_path(chat_id)
+    label = projeto_label(chat_id)
+
+    status = rodar("git status --short", cwd=cwd)
+    if not status["stdout"]:
+        await update.message.reply_text(f"✅ [{label}] Nenhuma alteração pendente.")
+        return
+
+    diff_out = rodar("git diff", cwd=cwd)
+    diff_cached = rodar("git diff --cached", cwd=cwd)
+    diff_texto = (diff_out["stdout"] or "") + "\n" + (diff_cached["stdout"] or "")
+    diff_texto = diff_texto.strip()
+
+    if not diff_texto:
+        # Pode ter apenas arquivos untracked
+        diff_texto = status["stdout"]
+
+    # Limitar tamanho do diff para não estourar
+    if len(diff_texto) > 8000:
+        diff_texto = diff_texto[:8000] + "\n... (diff truncado)"
+
+    aguarde = await update.message.reply_text(f"🤖 [{label}] Analisando diff...")
+
+    prompt = (
+        "Analise o diff abaixo e gere UMA mensagem de commit concisa e descritiva em português. "
+        "Use o formato convencional: tipo(escopo): descrição. "
+        "Tipos: feat, fix, refactor, docs, style, chore, test. "
+        "Responda APENAS com a mensagem de commit, nada mais. Sem explicações, sem aspas, sem prefixos.\\n\\n"
+        f"{diff_texto}"
+    ).replace('"', '\\"')
+
+    res, texto_resposta, _ = rodar_claude(prompt, cwd)
+
+    try:
+        await aguarde.delete()
+    except Exception:
+        pass
+
+    msg_commit = texto_resposta.strip().strip('"').strip("'").strip("`")
+    await update.message.reply_text(
+        f"💡 [{label}] Sugestão de commit:\n\n<code>{html.escape(msg_commit)}</code>",
+        parse_mode="HTML",
+    )
+
+
+@autorizado
+async def cmd_setcommands(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mostra instruções para configurar comandos no BotFather."""
+    # Descobrir username do bot
+    bot_info = await context.bot.get_me()
+    bot_username = f"@{bot_info.username}"
+
+    comandos = BOTFATHER_COMMANDS
+
+    await update.message.reply_text(
+        f"<b>1.</b> Abra @BotFather no Telegram\n\n"
+        f"<b>2.</b> Envie:\n<code>/setcommands</code>\n\n"
+        f"<b>3.</b> Digite ou Selecione:\n<code>{bot_username}</code>\n\n"
+        f"<b>4.</b> Cole tudo abaixo:\n\n"
+        f"<code>{comandos}</code>",
+        parse_mode="HTML",
+    )
 
 
 @autorizado
@@ -776,14 +877,8 @@ async def mensagem_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = update.effective_chat.id
         if projeto_config(chat_id) is None:
             pendente[chat_id] = texto
-            botoes = []
-            for key, cfg in PROJETOS.items():
-                botoes.append(
-                    InlineKeyboardButton(f"📁 {cfg['nome']}", callback_data=f"projeto:{key}")
-                )
-            teclado = InlineKeyboardMarkup([botoes[i:i + 2] for i in range(0, len(botoes), 2)])
-            await update.message.reply_text("⚠️ Escolha um projeto primeiro:", reply_markup=teclado)
-            return
+            if not await exigir_projeto(update):
+                return
 
         await enviar_para_claude(update, texto)
 
@@ -809,14 +904,14 @@ async def mensagem_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         photo = update.message.photo[-1]
         file = await photo.get_file()
         img_name = f"telegram_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-        img_path = os.path.join(cwd, img_name)
+        img_path = os.path.join(tempfile.gettempdir(), img_name)
         await file.download_to_drive(img_path)
 
         # Montar prompt para o Claude analisar a imagem
         if caption:
             prompt = f"Analise a imagem em {img_path} e responda: {caption}"
         else:
-            prompt = f"Analise a imagem em {img_path} e descreva o que você vê. Se for um screenshot de código ou erro, explique o que está acontecendo."
+            prompt = f"Leia a imagem em {img_path}. Se for um erro ou bug, sugira a correção. Se for código, analise. Seja direto e objetivo, sem descrever a imagem."
 
         await enviar_para_claude(update, prompt)
 
@@ -876,8 +971,11 @@ def main():
     app.add_handler(CommandHandler("ping_pc", cmd_ping_pc))
     app.add_handler(CommandHandler("bash", cmd_bash))
     app.add_handler(CommandHandler("new", cmd_new_session))
+    app.add_handler(CommandHandler("diff", cmd_diff))
+    app.add_handler(CommandHandler("diffia", cmd_diffia))
     app.add_handler(CommandHandler("git", cmd_git))
     app.add_handler(CommandHandler("gitpush", cmd_push))
+    app.add_handler(CommandHandler("setcommands", cmd_setcommands))
     app.add_handler(CommandHandler("restart_bot", cmd_restart))
 
     # Mensagem livre → Claude

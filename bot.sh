@@ -101,13 +101,9 @@ cmd_install() {
     fi
 
     # Nome do bot
-    read -p "Nome do bot (ex: botdev, botanalise, botlimpeza, botcontrolarpc): " BOT_NOME
-    BOT_NOME=$(echo "$BOT_NOME" | tr '[:upper:]' '[:lower:]')
-
-    if [ -z "$BOT_NOME" ]; then
-        echo "❌ Nome não pode ser vazio."
-        exit 1
-    fi
+    local DEFAULT_BOT="botdev"
+    read -p "Nome do bot [$DEFAULT_BOT]: " BOT_NOME
+    BOT_NOME=$(echo "${BOT_NOME:-$DEFAULT_BOT}" | tr '[:upper:]' '[:lower:]')
 
     BOT_NOME_UPPER=$(echo "$BOT_NOME" | tr '[:lower:]' '[:upper:]')
     SERVICE_NAME="remotedev-$BOT_NOME"
@@ -246,21 +242,12 @@ EOF
     echo "   2. Envie:"
     echo "      /setcommands"
     echo ""
-    echo "   3. Selecione:"
+    echo "   3. Digite ou Selecione:"
     echo "      $BOT_USERNAME"
     echo ""
     echo "   4. Cole tudo abaixo:"
     echo "   ─────────────────────────────────"
-    echo "start - Menu de ajuda"
-    echo "help - Menu de ajuda"
-    echo "new - Nova sessao Claude (limpa contexto)"
-    echo "p - Trocar projeto"
-    echo "bash - Executar comando no terminal"
-    echo "git - Comandos git"
-    echo "gitpush - Add, commit e push automatico"
-    echo "ping_pc - Verifica se desktop esta online"
-    echo "meu_chat_id - Mostra seu chat_id"
-    echo "restart_bot - Reinicia o bot"
+    sed -n '/^BOTFATHER_COMMANDS/,/^)/p' "$BOT_DIR/remotedev.py" | grep -oP '"\K[^"]+' | grep ' - ' | sed 's/\\n$//'
     echo "   ─────────────────────────────────"
     echo ""
     echo "── Gerenciar ──"
