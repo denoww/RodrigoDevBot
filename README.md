@@ -1,4 +1,4 @@
-# remotedev <!-- v5 -->
+# remotedev <!-- v6 -->
 
 Telegram Bot para controle remoto multiprojeto via desktop. Suporta múltiplos bots rodando em paralelo.
 
