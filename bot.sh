@@ -125,10 +125,16 @@ cmd_install() {
     export "$TOKEN_VAR=$BOT_TOKEN"
     echo "✅ $TOKEN_VAR salvo no ~/.bashrc"
 
+    # Descobrir username do bot
+    BOT_USERNAME=$(curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getMe" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['username'])" 2>/dev/null || echo "")
+
     # Chat ID
     echo ""
     echo "Agora vamos descobrir seu CHAT_ID."
-    echo "Mande qualquer mensagem pro bot no Telegram e aguarde..."
+    if [ -n "$BOT_USERNAME" ]; then
+        echo "Abra o bot: https://t.me/$BOT_USERNAME"
+    fi
+    echo "Mande qualquer mensagem pro bot e aguarde..."
     echo ""
 
     BOT_CHAT_ID=$("$BOT_DIR/venv/bin/python3" -c "

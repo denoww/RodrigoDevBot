@@ -134,8 +134,8 @@ def projeto_label(chat_id: int) -> str:
     except Exception:
         branch = ""
     if branch:
-        return f"📁 {cfg['nome']} ({branch})"
-    return f"📁 {cfg['nome']}"
+        return f"{cfg['nome']} ({branch})"
+    return f"{cfg['nome']}"
 
 
 async def exigir_projeto(update: Update) -> bool:
