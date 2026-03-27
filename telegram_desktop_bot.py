@@ -307,8 +307,7 @@ async def processar_comando(chat_id, texto, msg, context):
             return
         session_id = claude_sessions.get(cwd)
         if not session_id:
-            await msg.reply_text(f"⚠️ Nenhuma conversa anterior em [{label}]. Use /c primeiro.")
-            return
+            pass  # sem sessão anterior, inicia nova
         await msg.reply_text(f"🧠 Claude continuando... [{label}]")
         prompt_escaped = prompt.replace('"', '\\"')
         res, texto_resposta, novo_session_id = rodar_claude(prompt_escaped, cwd, session_id)
@@ -504,8 +503,7 @@ async def cmd_claude_continue(update: Update, context: ContextTypes.DEFAULT_TYPE
     session_id = claude_sessions.get(cwd)
 
     if not session_id:
-        await update.message.reply_text(f"⚠️ Nenhuma conversa anterior em [{label}]. Use /c primeiro.")
-        return
+        pass  # sem sessão anterior, inicia nova
 
     await update.message.reply_text(f"🧠 Claude continuando... [{label}]")
 
