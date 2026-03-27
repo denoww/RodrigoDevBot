@@ -30,8 +30,8 @@ from telegram.ext import (
 # CONFIGURAÇÃO
 # ══════════════════════════════════════════════════════════════════════
 
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "SEU_TOKEN_AQUI")
-CHAT_ID = int(os.environ.get("TELEGRAM_CHAT_ID", "0"))
+TOKEN = os.environ.get("TELEGRAM_BOT_DEV_TOKEN", "SEU_TOKEN_AQUI")
+CHAT_ID = int(os.environ.get("TELEGRAM_DEV_CHAT_ID", "0"))
 
 PROJETOS = {
     "erp": {

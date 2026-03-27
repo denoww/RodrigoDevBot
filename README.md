@@ -24,28 +24,43 @@ pip install -r requirements.txt
 
 Abra o Telegram, fale com [@BotFather](https://t.me/BotFather) e envie `/newbot`. Siga as instruções e copie o **TOKEN** que ele gerar.
 
-### 2. Descobrir seu CHAT_ID
+### 2. Salvar o TOKEN no bashrc
 
-Exporte o token e rode o bot em modo discovery:
+Adicione o token no seu `~/.bashrc` para ficar disponível em todos os terminais:
 
 ```bash
-export TELEGRAM_BOT_TOKEN="cole_seu_token_aqui"
+echo 'export TELEGRAM_BOT_DEV_TOKEN="cole_seu_token_aqui"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Se já existir uma linha com `TELEGRAM_BOT_DEV_TOKEN` no bashrc, atualize o valor ao invés de adicionar uma nova linha.
+
+### 3. Descobrir seu CHAT_ID
+
+Rode o bot em modo discovery:
+
+```bash
 python3 telegram_desktop_bot.py --get-chat-id
 ```
 
-Agora abra o Telegram e mande **qualquer mensagem** pro seu bot. O terminal vai mostrar seu `CHAT_ID`. Copie-o.
+Abra o Telegram e mande **qualquer mensagem** pro seu bot. O terminal vai mostrar seu `CHAT_ID`. Copie-o.
 
-### 3. Rodar o bot
-
-Com o TOKEN e o CHAT_ID em mãos:
+### 4. Salvar o CHAT_ID no bashrc
 
 ```bash
-export TELEGRAM_BOT_TOKEN="seu_token"
-export TELEGRAM_CHAT_ID="seu_chat_id"
+echo 'export TELEGRAM_DEV_CHAT_ID="seu_chat_id"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Se já existir uma linha com `TELEGRAM_DEV_CHAT_ID` no bashrc, atualize o valor ao invés de adicionar uma nova linha.
+
+### 5. Rodar o bot
+
+```bash
 python3 telegram_desktop_bot.py
 ```
 
-### 4. (Opcional) Configurar projetos
+### 6. (Opcional) Configurar projetos
 
 Edite o dict `PROJETOS` no arquivo `telegram_desktop_bot.py` com os caminhos dos seus projetos.
 
