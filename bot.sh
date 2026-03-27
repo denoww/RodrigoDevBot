@@ -3,15 +3,17 @@
 # remotedev — Script centralizado
 #
 # Uso:
-#   ./bot.sh install              — instala um novo bot (interativo)
-#   ./bot.sh uninstall            — lista bots e remove o escolhido
-#   ./bot.sh list                 — lista bots instalados
-#   ./bot.sh status               — status de todos os bots
-#   ./bot.sh logs <nome>          — logs do serviço
-#   ./bot.sh logs-claude <nome>   — logs do Claude
-#   ./bot.sh restart <nome>       — reinicia um bot
-#   ./bot.sh stop <nome>          — para um bot
-#   ./bot.sh start <nome>         — inicia um bot
+#   ./bot.sh install                        — instala um novo bot (interativo)
+#   ./bot.sh uninstall                      — lista bots e remove o escolhido
+#   ./bot.sh list                           — lista bots instalados
+#   ./bot.sh status                         — status de todos os bots
+#   ./bot.sh restart                        — pergunta qual bot reiniciar
+#   ./bot.sh restart dev_desktop            — reinicia direto
+#   ./bot.sh stop dev_desktop               — para o bot
+#   ./bot.sh start dev_desktop              — inicia o bot
+#   ./bot.sh logs dev_desktop               — logs do serviço
+#   ./bot.sh logs-claude dev_desktop        — logs do Claude
+#   ./bot.sh logs-claude dev_desktop scsip  — filtra por projeto
 #
 
 set -e
@@ -298,7 +300,7 @@ cmd_logs_claude() {
 
     local log_file="$BOT_DIR/claude-$nome.log"
     if [ ! -f "$log_file" ]; then
-        echo "Aguardando primeiras execuções do /claude no bot [$nome]..."
+        echo "Aguardando primeiras execuções do /c no bot [$nome]..."
         touch "$log_file"
     fi
 
@@ -345,15 +347,15 @@ cmd_help() {
     echo "Uso: ./bot.sh <comando> [argumentos]"
     echo ""
     echo "Comandos:"
-    echo "  install              Instala um novo bot (interativo)"
-    echo "  uninstall            Lista bots e remove o escolhido"
-    echo "  list                 Lista bots instalados"
-    echo "  status               Status de todos os bots"
-    echo "  logs [nome]          Logs do serviço"
-    echo "  logs-claude [nome]   Logs do Claude"
-    echo "  restart [nome]       Reinicia um bot"
-    echo "  stop [nome]          Para um bot"
-    echo "  start [nome]         Inicia um bot"
+    echo "  install                        Instala um novo bot (interativo)"
+    echo "  uninstall                      Lista bots e remove o escolhido"
+    echo "  list                           Lista bots instalados"
+    echo "  status                         Status de todos os bots"
+    echo "  restart [nome]                 Reinicia um bot"
+    echo "  stop [nome]                    Para um bot"
+    echo "  start [nome]                   Inicia um bot"
+    echo "  logs [nome]                    Logs do serviço"
+    echo "  logs-claude [nome] [filtro]    Logs do Claude"
 }
 
 # ── Main ─────────────────────────────────────────────────────────────
