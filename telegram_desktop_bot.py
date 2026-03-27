@@ -286,11 +286,28 @@ async def cmd_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🧠 Claude pensando... [{label}]")
 
     prompt_escaped = prompt.replace('"', '\\"')
-    cmd = f'claude -p "{prompt_escaped}" --dangerously-skip-permissions --verbose'
-
     cwd = projeto_path(update.effective_chat.id)
-    res = rodar(cmd, cwd=cwd, timeout=CLAUDE_TIMEOUT)
 
+    # Rodar com JSON para capturar thinking
+    cmd_json = f'claude -p "{prompt_escaped}" --dangerously-skip-permissions --output-format json'
+    res = rodar(cmd_json, cwd=cwd, timeout=CLAUDE_TIMEOUT)
+
+    # Extrair texto e thinking do JSON
+    texto_resposta = res["stdout"]
+    thinking = ""
+    try:
+        import json as json_mod
+        data = json_mod.loads(res["stdout"])
+        texto_resposta = data.get("result", res["stdout"])
+        # Extrair thinking dos messages
+        for msg in data.get("messages", []):
+            for block in msg.get("content", []):
+                if isinstance(block, dict) and block.get("type") == "thinking":
+                    thinking += block.get("thinking", "") + "\n"
+    except (json_mod.JSONDecodeError, TypeError, KeyError):
+        pass
+
+    # Log completo com thinking
     log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"claude-{BOT_NOME}.log")
     with open(log_file, "a") as f:
         f.write(f"\n{'='*60}\n")
@@ -298,11 +315,15 @@ async def cmd_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f.write(f"Projeto: {cwd}\n")
         f.write(f"Prompt: {prompt}\n")
         f.write(f"Exit: {res['code']}\n")
-        if res["stdout"]:
-            f.write(f"Saída:\n{res['stdout']}\n")
+        if thinking:
+            f.write(f"🧠 Thinking:\n{thinking}\n")
+        if texto_resposta:
+            f.write(f"Resposta:\n{texto_resposta}\n")
         if res["stderr"]:
             f.write(f"Erro:\n{res['stderr']}\n")
 
+    # Enviar só a resposta pro Telegram
+    res["stdout"] = texto_resposta
     await enviar_resultado(update, res, f"claude: {prompt[:80]}...")
 
 
