@@ -20,21 +20,34 @@ pip install -r requirements.txt
 
 ## Setup
 
-1. Fale com [@BotFather](https://t.me/BotFather) no Telegram → `/newbot` → copie o TOKEN
-2. Mande `/start` pro bot, depois rode:
-   ```bash
-   python3 telegram_desktop_bot.py --get-chat-id
-   ```
-3. Configure `TOKEN` e `CHAT_ID` via variáveis de ambiente ou direto no script
-4. Configure seus projetos no dict `PROJETOS`
+### 1. Criar o bot no Telegram
 
-## Uso
+Abra o Telegram, fale com [@BotFather](https://t.me/BotFather) e envie `/newbot`. Siga as instruções e copie o **TOKEN** que ele gerar.
+
+### 2. Descobrir seu CHAT_ID
+
+Exporte o token e rode o bot em modo discovery:
+
+```bash
+export TELEGRAM_BOT_TOKEN="cole_seu_token_aqui"
+python3 telegram_desktop_bot.py --get-chat-id
+```
+
+Agora abra o Telegram e mande **qualquer mensagem** pro seu bot. O terminal vai mostrar seu `CHAT_ID`. Copie-o.
+
+### 3. Rodar o bot
+
+Com o TOKEN e o CHAT_ID em mãos:
 
 ```bash
 export TELEGRAM_BOT_TOKEN="seu_token"
 export TELEGRAM_CHAT_ID="seu_chat_id"
 python3 telegram_desktop_bot.py
 ```
+
+### 4. (Opcional) Configurar projetos
+
+Edite o dict `PROJETOS` no arquivo `telegram_desktop_bot.py` com os caminhos dos seus projetos.
 
 ## Comandos disponíveis
 
