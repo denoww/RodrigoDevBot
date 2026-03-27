@@ -19,6 +19,7 @@ import sys
 import subprocess
 import html
 import json as json_mod
+import tempfile
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -213,11 +214,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/p <code>nome</code> — trocar direto\n\n"
         "<b>Comandos:</b>\n"
         "/bash <code>comando</code> — executa no terminal\n"
-        "/push <code>msg</code> — add+commit+push (sem msg = auto)\n"
+        "/gitpush <code>msg</code> — add+commit+push (sem msg = auto)\n"
         "/git <code>args</code> — git (pull, push, status...)\n"
         "/ping_pc — verifica se desktop está online\n"
         "/meu_chat_id — mostra seu chat_id\n"
-        "/restart — reinicia o bot",
+        "/restart_bot — reinicia o bot",
         parse_mode="HTML",
     )
 
@@ -296,7 +297,7 @@ async def processar_comando(chat_id, texto, msg, context):
         res = rodar(cmd, cwd=cwd)
         await msg.reply_text(res["stdout"] or res["stderr"] or "(sem saída)")
 
-    elif texto.startswith("/push"):
+    elif texto.startswith("/gitpush"):
         msg_commit = texto.split(" ", 1)[1].strip() if " " in texto else ""
         if not msg_commit:
             msg_commit = gerar_mensagem_commit(cwd)
@@ -711,6 +712,58 @@ async def mensagem_livre(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await enviar_para_claude(update, texto)
 
 
+async def transcrever_audio(file_path: str) -> str:
+    """Transcreve áudio usando OpenAI Whisper API."""
+    from openai import OpenAI
+    client = OpenAI()
+    with open(file_path, "rb") as audio_file:
+        transcription = client.audio.transcriptions.create(
+            model="gpt-4o-mini-transcribe",
+            file=audio_file,
+        )
+    return transcription.text
+
+
+@autorizado
+async def mensagem_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    voice = update.message.voice or update.message.audio
+    if not voice:
+        return
+
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    if not openai_key:
+        await update.message.reply_text("⚠️ OPENAI_API_KEY não configurada. Áudios não podem ser transcritos.\nRode ./bot.sh install novamente para configurar.")
+        return
+
+    if not await exigir_projeto(update):
+        return
+
+    await update.message.reply_text("🎤 Transcrevendo áudio...")
+
+    try:
+        # Baixar áudio do Telegram
+        file = await voice.get_file()
+        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+            tmp_path = tmp.name
+            await file.download_to_drive(tmp_path)
+
+        # Transcrever
+        texto = await transcrever_audio(tmp_path)
+        os.unlink(tmp_path)
+
+        if not texto or not texto.strip():
+            await update.message.reply_text("⚠️ Não consegui transcrever o áudio.")
+            return
+
+        await update.message.reply_text(f"📝 {texto}")
+        await enviar_para_claude(update, texto)
+
+    except Exception as e:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        await update.message.reply_text(f"❌ Erro ao transcrever: {e}")
+
+
 # ══════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════
@@ -753,17 +806,20 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_projeto, pattern=r"^projeto:"))
 
     # Comandos
-    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("help", cmd_start))
     app.add_handler(CommandHandler("meu_chat_id", cmd_meu_chat_id))
     app.add_handler(CommandHandler("ping_pc", cmd_ping_pc))
     app.add_handler(CommandHandler("bash", cmd_bash))
     app.add_handler(CommandHandler("new", cmd_new_session))
     app.add_handler(CommandHandler("git", cmd_git))
-    app.add_handler(CommandHandler("push", cmd_push))
-    app.add_handler(CommandHandler("restart", cmd_restart))
+    app.add_handler(CommandHandler("gitpush", cmd_push))
+    app.add_handler(CommandHandler("restart_bot", cmd_restart))
 
     # Mensagem livre → Claude
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensagem_livre))
+
+    # Áudio → transcrever → Claude
+    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, mensagem_audio))
 
     async def post_init(application):
         await application.bot.send_message(

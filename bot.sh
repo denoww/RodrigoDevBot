@@ -168,6 +168,25 @@ except (KeyboardInterrupt, SystemExit):
     export "$CHAT_ID_VAR=$BOT_CHAT_ID"
     echo "✅ $CHAT_ID_VAR salvo no ~/.bashrc"
 
+    # OpenAI API Key (opcional, para transcrição de áudio)
+    echo ""
+    echo "🎤 OpenAI API Key (para transcrever áudios do Telegram)"
+    echo "   Opcional — sem ela, áudios não serão interpretados."
+    read -p "Cole a OPENAI_API_KEY (ou Enter para pular): " OPENAI_KEY
+
+    if [ -n "$OPENAI_KEY" ]; then
+        salvar_env_bashrc "OPENAI_API_KEY" "$OPENAI_KEY"
+        export "OPENAI_API_KEY=$OPENAI_KEY"
+        echo "✅ OPENAI_API_KEY salvo no ~/.bashrc"
+    else
+        OPENAI_KEY="${OPENAI_API_KEY:-}"
+        if [ -n "$OPENAI_KEY" ]; then
+            echo "ℹ️  Usando OPENAI_API_KEY já configurada."
+        else
+            echo "⏭️  Pulado. Áudios não serão transcritos."
+        fi
+    fi
+
     # Salvar config local
     cat > "$BOTS_DIR/$BOT_NOME.conf" << EOF
 BOT_TOKEN="$BOT_TOKEN"
@@ -182,6 +201,10 @@ EOF
 $TOKEN_VAR=$BOT_TOKEN
 $CHAT_ID_VAR=$BOT_CHAT_ID
 EOF
+
+    if [ -n "$OPENAI_KEY" ]; then
+        echo "OPENAI_API_KEY=$OPENAI_KEY" >> "$SERVICE_DIR/$SERVICE_NAME.env"
+    fi
 
     # Criar serviço
     cat > "$SERVICE_DIR/$SERVICE_NAME.service" << EOF
