@@ -26,10 +26,11 @@ Abra o Telegram, fale com [@BotFather](https://t.me/BotFather) e envie `/newbot`
 
 ### 2. Salvar o TOKEN no bashrc
 
-Adicione o token no seu `~/.bashrc` para ficar disponível em todos os terminais:
+Substitua `SEU_TOKEN` pelo token que o BotFather gerou e rode:
 
 ```bash
-grep -q 'TELEGRAM_BOT_DEV_TOKEN' ~/.bashrc && sed -i 's|export TELEGRAM_BOT_DEV_TOKEN=.*|export TELEGRAM_BOT_DEV_TOKEN="cole_seu_token_aqui"|' ~/.bashrc || echo 'export TELEGRAM_BOT_DEV_TOKEN="cole_seu_token_aqui"' >> ~/.bashrc
+MEU_TOKEN="SEU_TOKEN"
+grep -q 'TELEGRAM_BOT_DEV_TOKEN' ~/.bashrc && sed -i "s|export TELEGRAM_BOT_DEV_TOKEN=.*|export TELEGRAM_BOT_DEV_TOKEN=\"$MEU_TOKEN\"|" ~/.bashrc || echo "export TELEGRAM_BOT_DEV_TOKEN=\"$MEU_TOKEN\"" >> ~/.bashrc
 source ~/.bashrc
 ```
 
@@ -45,8 +46,11 @@ Abra o Telegram e mande **qualquer mensagem** pro seu bot. O terminal vai mostra
 
 ### 4. Salvar o CHAT_ID no bashrc
 
+Substitua `SEU_CHAT_ID` pelo número que apareceu no terminal e rode:
+
 ```bash
-grep -q 'TELEGRAM_DEV_CHAT_ID' ~/.bashrc && sed -i 's|export TELEGRAM_DEV_CHAT_ID=.*|export TELEGRAM_DEV_CHAT_ID="seu_chat_id"|' ~/.bashrc || echo 'export TELEGRAM_DEV_CHAT_ID="seu_chat_id"' >> ~/.bashrc
+MEU_CHAT_ID="SEU_CHAT_ID"
+grep -q 'TELEGRAM_DEV_CHAT_ID' ~/.bashrc && sed -i "s|export TELEGRAM_DEV_CHAT_ID=.*|export TELEGRAM_DEV_CHAT_ID=\"$MEU_CHAT_ID\"|" ~/.bashrc || echo "export TELEGRAM_DEV_CHAT_ID=\"$MEU_CHAT_ID\"" >> ~/.bashrc
 source ~/.bashrc
 ```
 
