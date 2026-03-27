@@ -1,62 +1,34 @@
 # RodrigoDevBot
 
-Telegram Bot para controle remoto multiprojeto via desktop. Suporta múltiplas instâncias (ex: dev, prod) rodando em paralelo.
+Telegram Bot para controle remoto multiprojeto via desktop. Suporta múltiplos bots rodando em paralelo.
 
 ## Instalação
 
-Caso não tenha o `python3-venv` instalado:
-
 ```bash
-sudo apt install python3-venv
-```
-
-Crie um ambiente virtual e instale as dependências:
-
-```bash
+sudo apt install python3-venv   # se necessário
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Setup de um bot
+## Instalar um bot
 
-Cada bot precisa de um nome (ex: `dev`, `prod`). Os exemplos abaixo usam `dev`.
-
-### 1. Criar o bot no Telegram
-
-Abra o Telegram, fale com [@BotFather](https://t.me/BotFather) e envie `/newbot`. Siga as instruções e copie o **TOKEN** que ele gerar.
-
-### 2. Salvar o TOKEN no bashrc
-
-Substitua `SEU_TOKEN` e rode:
+O script interativo pede nome, token e descobre o CHAT_ID automaticamente:
 
 ```bash
-MEU_TOKEN="SEU_TOKEN"
-NOME="DEV"
-grep -q "TELEGRAM_BOT_${NOME}_TOKEN" ~/.bashrc && sed -i "s|export TELEGRAM_BOT_${NOME}_TOKEN=.*|export TELEGRAM_BOT_${NOME}_TOKEN=\"$MEU_TOKEN\"|" ~/.bashrc || echo "export TELEGRAM_BOT_${NOME}_TOKEN=\"$MEU_TOKEN\"" >> ~/.bashrc
-source ~/.bashrc
+./bot.sh install
 ```
 
-### 3. Descobrir seu CHAT_ID
+Passo a passo que o script executa:
+1. Pergunta o **nome** do bot (ex: `dev`, `prod`)
+2. Pede o **TOKEN** (que você copia do [@BotFather](https://t.me/BotFather))
+3. Descobre o **CHAT_ID** — basta mandar uma mensagem pro bot no Telegram
+4. Salva tudo no `~/.bashrc` e cria o serviço systemd
+5. Inicia o bot automaticamente
 
-```bash
-python3 telegram_desktop_bot.py dev --get-chat-id
-```
+Para adicionar outro bot, rode `./bot.sh install` novamente com outro nome.
 
-Abra o Telegram e mande **qualquer mensagem** pro seu bot. O terminal vai mostrar seu `CHAT_ID`. Copie-o.
-
-### 4. Salvar o CHAT_ID no bashrc
-
-Substitua `SEU_CHAT_ID` e rode:
-
-```bash
-MEU_CHAT_ID="SEU_CHAT_ID"
-NOME="DEV"
-grep -q "TELEGRAM_${NOME}_CHAT_ID" ~/.bashrc && sed -i "s|export TELEGRAM_${NOME}_CHAT_ID=.*|export TELEGRAM_${NOME}_CHAT_ID=\"$MEU_CHAT_ID\"|" ~/.bashrc || echo "export TELEGRAM_${NOME}_CHAT_ID=\"$MEU_CHAT_ID\"" >> ~/.bashrc
-source ~/.bashrc
-```
-
-### 5. Registrar comandos no Telegram
+## Registrar comandos no Telegram
 
 Fale com [@BotFather](https://t.me/BotFather), envie `/setcommands`, selecione seu bot e cole:
 
@@ -74,62 +46,21 @@ id - Mostra seu chat_id
 restart - Reinicia o bot
 ```
 
-### 6. Instalar como serviço (inicia com o sistema)
+## Gerenciar bots
 
 ```bash
-./install_service.sh dev
+./bot.sh list                 # lista bots instalados
+./bot.sh status               # status de todos os bots
+./bot.sh restart dev           # reinicia o bot dev
+./bot.sh stop dev              # para o bot dev
+./bot.sh start dev             # inicia o bot dev
+./bot.sh logs dev              # logs do serviço
+./bot.sh logs-claude dev       # logs do Claude
+./bot.sh logs-claude dev scsip # filtra por projeto
+./bot.sh uninstall             # lista bots e remove o escolhido
 ```
 
-Depois abra seu bot no Telegram e envie `/start`.
-
-## Adicionar outro bot
-
-Repita os passos acima com outro nome. Exemplo para `prod`:
-
-```bash
-# Passo 2 — TOKEN
-MEU_TOKEN="TOKEN_DO_BOT_PROD"
-NOME="PROD"
-grep -q "TELEGRAM_BOT_${NOME}_TOKEN" ~/.bashrc && sed -i "s|export TELEGRAM_BOT_${NOME}_TOKEN=.*|export TELEGRAM_BOT_${NOME}_TOKEN=\"$MEU_TOKEN\"|" ~/.bashrc || echo "export TELEGRAM_BOT_${NOME}_TOKEN=\"$MEU_TOKEN\"" >> ~/.bashrc
-source ~/.bashrc
-
-# Passo 3 — CHAT_ID
-python3 telegram_desktop_bot.py prod --get-chat-id
-
-# Passo 4 — Salvar CHAT_ID
-MEU_CHAT_ID="CHAT_ID_DO_PROD"
-NOME="PROD"
-grep -q "TELEGRAM_${NOME}_CHAT_ID" ~/.bashrc && sed -i "s|export TELEGRAM_${NOME}_CHAT_ID=.*|export TELEGRAM_${NOME}_CHAT_ID=\"$MEU_CHAT_ID\"|" ~/.bashrc || echo "export TELEGRAM_${NOME}_CHAT_ID=\"$MEU_CHAT_ID\"" >> ~/.bashrc
-source ~/.bashrc
-
-# Passo 6 — Instalar serviço
-./install_service.sh prod
-```
-
-## Logs
-
-```bash
-./logs_do_service.sh dev        # logs do bot dev
-./logs_do_service.sh prod       # logs do bot prod
-./logs_do_claude.sh dev         # execuções do /claude no bot dev
-./logs_do_claude.sh dev scsip   # filtra por projeto
-```
-
-Status:
-
-```bash
-systemctl --user status rodrigodevbot-dev
-systemctl --user status rodrigodevbot-prod
-```
-
-## Desinstalar
-
-```bash
-./uninstall_service.sh dev
-./uninstall_service.sh prod
-```
-
-## Comandos disponíveis
+## Comandos disponíveis no Telegram
 
 | Comando | Descrição |
 |---------|-----------|
