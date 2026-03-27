@@ -468,7 +468,7 @@ def main():
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("ping_pc", cmd_ping_pc))
     app.add_handler(CommandHandler("bash", cmd_bash))
-    app.add_handler(CommandHandler("new", cmd_new_session))
+    app.add_handler(CommandHandler("limpar_conversa", cmd_new_session))
     app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(CommandHandler("gitdiff", cmd_diff))
     app.add_handler(CommandHandler("gitreset", cmd_gitreset))

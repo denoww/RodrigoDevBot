@@ -38,7 +38,7 @@ PROJETO_PADRAO = None
 
 BOTFATHER_COMMANDS = (
     "start - Exibe este menu\n"
-    "new - Inicia sessao limpa do Claude\n"
+    "limpar_conversa - Limpa conversa do Claude\n"
     "stop - Para o comando em andamento\n"
     "projeto - Seleciona o projeto ativo\n"
     "bash - Roda um comando no terminal\n"
