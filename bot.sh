@@ -212,10 +212,11 @@ EOF
     echo ""
     echo "   Abra o Telegram e envie /start pro bot."
     echo ""
+    BOT_USERNAME=$(curl -s "https://api.telegram.org/bot${!TOKEN_VAR}/getMe" | python3 -c "import sys,json; print('@'+json.load(sys.stdin)['result']['username'])" 2>/dev/null || echo "seu bot")
     echo "── Registrar comandos no Telegram ──"
     echo "   1. Abra @BotFather no Telegram"
     echo "   2. Envie /setcommands"
-    echo "   3. Selecione seu bot"
+    echo "   3. Selecione $BOT_USERNAME"
     echo "   4. Cole:"
     echo ""
     echo "start - Menu de ajuda"
