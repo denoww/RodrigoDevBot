@@ -333,9 +333,9 @@ except (KeyboardInterrupt, SystemExit):
         chmod +x "$poll_script"
         (crontab -l 2>/dev/null | grep -v gitpull-and-restart; echo "*/2 * * * * $poll_script") | crontab -
         echo "  ✅ Polling ativado (a cada 2 min)"
-        echo "     Gerenciar depois: ./bot.sh poll [on|off|status|log]"
+        echo "     Gerenciar depois: ./bot.sh atualizacao_automatica [on|off|status|log]"
     else
-        echo "  ⏭️  Pulado. Ativar depois: ./bot.sh poll on"
+        echo "  ⏭️  Pulado. Ativar depois: ./bot.sh atualizacao_automatica on"
     fi
 
     # Salvar config local
@@ -408,11 +408,17 @@ EOF
     echo "  Comandos são registrados automaticamente ao iniciar."
     echo ""
     echo "  ── Gerenciar ──────────────────────────────────────"
-    echo "  Logs:          ./bot.sh logs $BOT_NOME"
-    echo "  Logs Claude:   ./bot.sh logs-claude $BOT_NOME"
-    echo "  Reiniciar:     ./bot.sh restart $BOT_NOME"
-    echo "  Status:        ./bot.sh status"
-    echo "  Desinstalar:   ./bot.sh uninstall"
+    echo "  Logs:              ./bot.sh logs $BOT_NOME"
+    echo "  Logs Claude:       ./bot.sh logs-claude $BOT_NOME"
+    echo "  Reiniciar:         ./bot.sh restart $BOT_NOME"
+    echo "  Status:            ./bot.sh status"
+    echo "  Desinstalar:       ./bot.sh uninstall"
+    echo ""
+    echo "  ── Atualização automática ─────────────────────────"
+    echo "  Ativar:            ./bot.sh atualizacao_automatica on"
+    echo "  Desativar:         ./bot.sh atualizacao_automatica off"
+    echo "  Status:            ./bot.sh atualizacao_automatica status"
+    echo "  Log:               ./bot.sh atualizacao_automatica log"
     echo ""
 }
 
@@ -515,7 +521,7 @@ cmd_start() {
     echo "🟢 Bot [$nome] iniciado."
 }
 
-cmd_poll() {
+cmd_atualizacao_automatica() {
     local action="${1:-status}"
     local poll_script="$BOT_DIR/gitpull-and-restart.sh"
     local poll_log="$BOT_DIR/gitpull.log"
@@ -660,7 +666,7 @@ cmd_help() {
     echo "  start [nome]                   Inicia um bot"
     echo "  logs [nome]                    Logs do serviço"
     echo "  logs-claude [nome] [filtro]    Logs do Claude"
-    echo "  poll [on|off|log|status]       Gerencia polling de commits"
+    echo "  atualizacao_automatica [on|off|log|status]  Gerencia atualização automática"
 }
 
 # ── Main ─────────────────────────────────────────────────────────────
@@ -676,6 +682,6 @@ case "${1:-}" in
     restart)    cmd_restart "$2" ;;
     stop)       cmd_stop "$2" ;;
     start)      cmd_start "$2" ;;
-    poll)       cmd_poll "$2" ;;
+    atualizacao_automatica) cmd_atualizacao_automatica "$2" ;;
     *)          cmd_help ;;
 esac

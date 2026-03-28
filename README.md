@@ -39,3 +39,16 @@ Vá no Telegram e digite `/menu` ou `/` para ver os comandos. Eles são registra
 ```
 
 Todos os comandos que recebem nome do bot são opcionais — se não passar, ele lista os bots e pergunta qual.
+
+## Atualizações automáticas
+
+O bot pode verificar commits novos a cada 2 minutos e reiniciar automaticamente. Ele avisa no Telegram antes de reiniciar.
+
+Pode ser ativado durante a instalação ou a qualquer momento:
+
+```bash
+./bot.sh atualizacao_automatica on      # ativa (a cada 2 min)
+./bot.sh atualizacao_automatica off     # desativa
+./bot.sh atualizacao_automatica status  # verifica se está ativo
+./bot.sh atualizacao_automatica log     # últimas atualizações
+```
