@@ -261,6 +261,24 @@ async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subprocess.Popen(f"sleep 2 && cd {BOT_REPO_DIR} && git pull && systemctl --user restart {BOT_SERVICE}", shell=True)
 
 
+@autorizado
+async def cmd_restart_todos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        res = subprocess.run(
+            ["systemctl", "--user", "list-units", "remotedev-*", "--no-legend", "--plain"],
+            capture_output=True, text=True, timeout=10,
+        )
+        services = [line.split()[0] for line in res.stdout.strip().splitlines() if line.strip()]
+    except Exception:
+        services = [BOT_SERVICE]
+    if not services:
+        services = [BOT_SERVICE]
+    nomes = ", ".join(s.replace("remotedev-", "").replace(".service", "") for s in services)
+    await update.message.reply_text(f"🔄 Atualizando e reiniciando todos: {nomes}...")
+    restart_cmd = " && ".join(f"systemctl --user restart {s}" for s in services)
+    subprocess.Popen(f"sleep 2 && cd {BOT_REPO_DIR} && git pull && {restart_cmd}", shell=True)
+
+
 # ══════════════════════════════════════════════════════════════════════
 # MENSAGENS — TEXTO, ÁUDIO, FOTO
 # ══════════════════════════════════════════════════════════════════════
@@ -498,6 +516,7 @@ def main():
     app.add_handler(CommandHandler("gitbranch", cmd_gitbranch))
     app.add_handler(CommandHandler("gitpush", cmd_push))
     app.add_handler(CommandHandler("restart_bot", cmd_restart))
+    app.add_handler(CommandHandler("restart_todos", cmd_restart_todos))
 
     # Comando desconhecido
     @autorizado

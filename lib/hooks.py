@@ -70,5 +70,18 @@ async def pos_push(update_or_msg, cwd, res):
     for h in executar_hooks(cwd, {"git_pushed"}):
         await msg.reply_text(h)
     if os.path.realpath(cwd) == os.path.realpath(BOT_REPO_DIR):
-        await msg.reply_text(f"🔄 Reiniciando {BOT_NOME}...")
-        subprocess.Popen(f"sleep 2 && systemctl --user restart {BOT_SERVICE}", shell=True)
+        # Reinicia todos os bots remotedev da máquina, não só o atual
+        try:
+            res_units = subprocess.run(
+                ["systemctl", "--user", "list-units", "remotedev-*", "--no-legend", "--plain"],
+                capture_output=True, text=True, timeout=10,
+            )
+            services = [line.split()[0] for line in res_units.stdout.strip().splitlines() if line.strip()]
+        except Exception:
+            services = [BOT_SERVICE]
+        if not services:
+            services = [BOT_SERVICE]
+        nomes = ", ".join(s.replace("remotedev-", "").replace(".service", "") for s in services)
+        await msg.reply_text(f"🔄 Reiniciando {nomes}...")
+        restart_cmd = " && ".join(f"systemctl --user restart {s}" for s in services)
+        subprocess.Popen(f"sleep 2 && {restart_cmd}", shell=True)

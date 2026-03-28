@@ -40,6 +40,7 @@ BOTFATHER_COMMANDS = (
     "gitpush - Faz add, commit e push de uma vez\n"
     "cancelar - Cancela o comando em andamento\n"
     "restart_bot - Reinicia o bot\n"
+    "restart_todos - Reinicia todos os bots da maquina\n"
     "gitdiff - Mostra diff e sugere mensagem de commit\n"
     "projeto - Seleciona o projeto ativo\n"
     "bash - Roda um comando no terminal\n"
