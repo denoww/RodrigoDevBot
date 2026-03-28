@@ -90,30 +90,36 @@ salvar_env_bashrc() {
 # ── Comandos ─────────────────────────────────────────────────────────
 
 cmd_install() {
-    echo "📦 Instalação de novo bot"
+    echo ""
+    echo "  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓"
+    echo "  ┃  📦 INSTALAÇÃO DE NOVO BOT                    ┃"
+    echo "  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛"
     echo ""
 
     # Verificar venv
     if [ ! -f "$BOT_DIR/venv/bin/python3" ]; then
-        echo "❌ venv não encontrado. Rode antes:"
-        echo "   python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
+        echo "  ❌ venv não encontrado. Rode antes:"
+        echo "     python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
         exit 1
     fi
 
     # Verificar Claude Code
     if ! command -v claude &>/dev/null; then
-        echo "❌ Claude Code não está instalado."
-        echo "   Instale com: npm install -g @anthropic-ai/claude-code"
+        echo "  ❌ Claude Code não está instalado."
+        echo "     Instale com: npm install -g @anthropic-ai/claude-code"
         exit 1
     fi
 
     if ! claude auth status &>/dev/null; then
-        echo "❌ Claude Code não está logado."
-        echo "   Faça login com: claude login"
+        echo "  ❌ Claude Code não está logado."
+        echo "     Faça login com: claude login"
         exit 1
     fi
 
-    # Pasta dos projetos
+    # ── Etapa 1: Workspace ──────────────────────────────────────────
+    echo "  ── Etapa 1/5: Workspace ──"
+    echo ""
+
     if [ "$(uname)" = "Darwin" ]; then
         DEFAULT_WORKSPACE="$HOME/Developer"
     else
@@ -121,60 +127,93 @@ cmd_install() {
     fi
     [ -n "${REMOTEDEV_WORKSPACE:-}" ] && DEFAULT_WORKSPACE="$REMOTEDEV_WORKSPACE"
 
-    read -p "Pasta dos projetos [$DEFAULT_WORKSPACE]: " WORKSPACE_INPUT
+    read -p "  Pasta dos projetos [$DEFAULT_WORKSPACE]: " WORKSPACE_INPUT
     WORKSPACE="${WORKSPACE_INPUT:-$DEFAULT_WORKSPACE}"
 
     if [ ! -d "$WORKSPACE" ]; then
-        read -p "Pasta '$WORKSPACE' não existe. Criar? (s/N): " criar_ws
+        read -p "  Pasta '$WORKSPACE' não existe. Criar? (s/N): " criar_ws
         if [ "$criar_ws" = "s" ] || [ "$criar_ws" = "S" ]; then
             mkdir -p "$WORKSPACE"
-            echo "✅ Pasta criada: $WORKSPACE"
+            echo "  ✅ Pasta criada: $WORKSPACE"
         else
-            echo "❌ Abortado."
+            echo "  ❌ Abortado."
             exit 1
         fi
     fi
 
     salvar_env_bashrc "REMOTEDEV_WORKSPACE" "$WORKSPACE"
     export "REMOTEDEV_WORKSPACE=$WORKSPACE"
-    echo "✅ Workspace: $WORKSPACE"
+    echo "  ✅ Workspace: $WORKSPACE"
+
+    # ── Etapa 2: Nome do bot ────────────────────────────────────────
+    echo ""
+    echo "  ── Etapa 2/5: Nome do bot ──"
     echo ""
 
-    # Nome do bot
     local DEFAULT_BOT="botdev"
-    read -p "Nome do bot [$DEFAULT_BOT]: " BOT_NOME
+    read -p "  Nome do bot [$DEFAULT_BOT]: " BOT_NOME
     BOT_NOME=$(echo "${BOT_NOME:-$DEFAULT_BOT}" | tr '[:upper:]' '[:lower:]')
+
+    while [ -f "$BOTS_DIR/$BOT_NOME.conf" ]; do
+        echo "  ❌ Bot '$BOT_NOME' já está instalado."
+        read -p "  Escolha outro nome (ou 'q' para sair): " BOT_NOME
+        if [ "$BOT_NOME" = "q" ] || [ -z "$BOT_NOME" ]; then
+            echo "  ❌ Abortado."
+            exit 1
+        fi
+        BOT_NOME=$(echo "$BOT_NOME" | tr '[:upper:]' '[:lower:]')
+    done
+
+    echo "  ✅ Bot: $BOT_NOME"
 
     BOT_NOME_UPPER=$(echo "$BOT_NOME" | tr '[:lower:]' '[:upper:]')
     SERVICE_NAME="remotedev-$BOT_NOME"
     TOKEN_VAR="TELEGRAM_BOT_${BOT_NOME_UPPER}_TOKEN"
     CHAT_ID_VAR="TELEGRAM_${BOT_NOME_UPPER}_CHAT_ID"
 
-    # Token
+    # ── Etapa 3: Token do Telegram ──────────────────────────────────
     echo ""
-    echo "Abra o Telegram → @BotFather → /newbot → copie o token"
-    read -p "Cole o TOKEN: " BOT_TOKEN
+    echo "  ── Etapa 3/5: Token do Telegram ──"
+    echo ""
+    echo "  Bot novo?    Abra https://t.me/BotFather → /newbot"
+    echo "  Bot existe?  Abra https://t.me/BotFather → /mybots → API Token"
+    echo ""
+    echo "  Copie o token e cole abaixo."
+    echo ""
+    read -p "  TOKEN: " BOT_TOKEN
 
     if [ -z "$BOT_TOKEN" ]; then
-        echo "❌ Token não pode ser vazio."
+        echo "  ❌ Token não pode ser vazio."
         exit 1
     fi
 
     # Salvar token no bashrc
     salvar_env_bashrc "$TOKEN_VAR" "$BOT_TOKEN"
     export "$TOKEN_VAR=$BOT_TOKEN"
-    echo "✅ $TOKEN_VAR salvo no ~/.bashrc"
+    echo "  ✅ Token salvo"
 
     # Descobrir username do bot
     BOT_USERNAME=$(curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getMe" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['username'])" 2>/dev/null || echo "")
 
-    # Chat ID
+    # ── Etapa 4: Chat ID ───────────────────────────────────────────
     echo ""
-    echo "Agora vamos descobrir seu CHAT_ID."
+    echo "  ── Etapa 4/5: Chat ID ──"
+    echo ""
     if [ -n "$BOT_USERNAME" ]; then
-        echo "Abra o bot: https://t.me/$BOT_USERNAME"
+        echo "  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓"
+        echo "  ┃                                              ┃"
+        echo "  ┃  👉 ABRA O BOT NO TELEGRAM:                 ┃"
+        echo "  ┃                                              ┃"
+        echo "  ┃     https://t.me/$BOT_USERNAME"
+        echo "  ┃                                              ┃"
+        echo "  ┃  E mande qualquer mensagem.                  ┃"
+        echo "  ┃                                              ┃"
+        echo "  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛"
+    else
+        echo "  Mande qualquer mensagem pro bot e aguarde..."
     fi
-    echo "Mande qualquer mensagem pro bot e aguarde..."
+    echo ""
+    echo "  ⏳ Aguardando mensagem..."
     echo ""
 
     BOT_CHAT_ID=$("$BOT_DIR/venv/bin/python3" -c "
@@ -198,43 +237,46 @@ except (KeyboardInterrupt, SystemExit):
 " 2>/dev/null | tail -1)
 
     if [ -z "$BOT_CHAT_ID" ]; then
-        echo "❌ Não consegui capturar o CHAT_ID. Tente novamente."
+        echo "  ❌ Não consegui capturar o CHAT_ID. Tente novamente."
         exit 1
     fi
 
-    echo ""
-    echo "✅ CHAT_ID capturado: $BOT_CHAT_ID"
+    echo "  ✅ CHAT_ID capturado: $BOT_CHAT_ID"
 
     # Salvar chat_id no bashrc
     salvar_env_bashrc "$CHAT_ID_VAR" "$BOT_CHAT_ID"
     export "$CHAT_ID_VAR=$BOT_CHAT_ID"
-    echo "✅ $CHAT_ID_VAR salvo no ~/.bashrc"
+
+    # ── Etapa 5: Extras ────────────────────────────────────────────
+    echo ""
+    echo "  ── Etapa 5/5: Extras (opcionais) ──"
 
     # OpenAI API Key (opcional, para transcrição de áudio)
     echo ""
-    echo "🎤 OpenAI API Key (para transcrever áudios do Telegram)"
-    echo "   Opcional — sem ela, áudios não serão interpretados."
-    read -p "Cole a OPENAI_API_KEY (ou Enter para pular): " OPENAI_KEY
+    echo "  🎤 OpenAI API Key (para transcrever áudios do Telegram)"
+    echo "     Sem ela, áudios não serão interpretados."
+    echo ""
+    read -p "  Cole a OPENAI_API_KEY (ou Enter para pular): " OPENAI_KEY
 
     if [ -n "$OPENAI_KEY" ]; then
         salvar_env_bashrc "OPENAI_API_KEY" "$OPENAI_KEY"
         export "OPENAI_API_KEY=$OPENAI_KEY"
-        echo "✅ OPENAI_API_KEY salvo no ~/.bashrc"
+        echo "  ✅ OPENAI_API_KEY salvo"
     else
         OPENAI_KEY="${OPENAI_API_KEY:-}"
         if [ -n "$OPENAI_KEY" ]; then
-            echo "ℹ️  Usando OPENAI_API_KEY já configurada."
+            echo "  ℹ️  Usando OPENAI_API_KEY já configurada."
         else
-            echo "⏭️  Pulado. Áudios não serão transcritos."
+            echo "  ⏭️  Pulado."
         fi
     fi
 
     # ffmpeg (para interpretar vídeos)
     echo ""
-    read -p "🎬 Instalar suporte a vídeos? Requer ffmpeg (s/N): " INSTALAR_FFMPEG
+    read -p "  🎬 Instalar suporte a vídeos? Requer ffmpeg (s/N): " INSTALAR_FFMPEG
     if [ "$INSTALAR_FFMPEG" = "s" ] || [ "$INSTALAR_FFMPEG" = "S" ]; then
         if ! command -v ffmpeg &>/dev/null; then
-            echo "📦 Instalando ffmpeg..."
+            echo "  📦 Instalando ffmpeg..."
             if command -v apt-get &>/dev/null; then
                 sudo apt-get install -y -qq ffmpeg
             elif command -v yum &>/dev/null; then
@@ -242,14 +284,14 @@ except (KeyboardInterrupt, SystemExit):
             elif command -v dnf &>/dev/null; then
                 sudo dnf install -y -q ffmpeg
             else
-                echo "⚠️  Instale ffmpeg manualmente."
+                echo "  ⚠️  Instale ffmpeg manualmente."
             fi
         fi
         if command -v ffmpeg &>/dev/null; then
-            echo "✅ ffmpeg instalado"
+            echo "  ✅ ffmpeg instalado"
         fi
     else
-        echo "⏭️  Pulado."
+        echo "  ⏭️  Pulado."
     fi
 
     # Salvar config local
@@ -307,37 +349,29 @@ WantedBy=default.target
 EOF
 
     # Ativar e iniciar
+    echo ""
+    echo "  ⚙️  Configurando serviço..."
     systemctl --user daemon-reload
     systemctl --user enable "$SERVICE_NAME"
     systemctl --user restart "$SERVICE_NAME"
     loginctl enable-linger "$USER"
 
+    # ── Resultado ───────────────────────────────────────────────────
     echo ""
-    echo "═══════════════════════════════════════════"
+    echo "  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓"
+    echo "  ┃  ✅ Bot [$BOT_NOME] instalado e rodando!      ┃"
+    echo "  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛"
     echo ""
-    echo "  ./bot.sh list                    # lista bots instalados"
-    echo "  ./bot.sh status                  # status de todos os bots"
-    echo "  ./bot.sh restart                 # reinicia um bot"
-    echo "  ./bot.sh stop                    # para um bot"
-    echo "  ./bot.sh start                   # inicia um bot"
-    echo "  ./bot.sh logs                    # logs do serviço"
-    echo "  ./bot.sh logs-claude             # logs do Claude"
-    echo "  ./bot.sh logs-claude BOT PROJETO # filtra por projeto"
-    echo "  ./bot.sh uninstall               # remove um bot"
+    echo "  Abra o Telegram e envie /start pro bot."
+    echo "  Comandos são registrados automaticamente ao iniciar."
     echo ""
-    echo "═══════════════════════════════════════════"
-    echo "✅ Bot [$BOT_NOME] instalado e rodando!"
+    echo "  ── Gerenciar ──────────────────────────────────────"
+    echo "  Logs:          ./bot.sh logs $BOT_NOME"
+    echo "  Logs Claude:   ./bot.sh logs-claude $BOT_NOME"
+    echo "  Reiniciar:     ./bot.sh restart $BOT_NOME"
+    echo "  Status:        ./bot.sh status"
+    echo "  Desinstalar:   ./bot.sh uninstall"
     echo ""
-    echo "   Abra o Telegram e envie /start pro bot."
-    echo ""
-    echo "   Comandos do Telegram são registrados automaticamente ao iniciar."
-    echo ""
-    echo "── Gerenciar ──"
-    echo "   Logs:          ./bot.sh logs $BOT_NOME"
-    echo "   Logs Claude:   ./bot.sh logs-claude $BOT_NOME"
-    echo "   Reiniciar:     ./bot.sh restart $BOT_NOME"
-    echo "   Desinstalar:   ./bot.sh uninstall"
-    echo "═══════════════════════════════════════════"
 }
 
 cmd_uninstall() {
