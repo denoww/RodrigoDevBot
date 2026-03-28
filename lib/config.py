@@ -37,7 +37,7 @@ PROJETOS = descobrir_projetos(WORKSPACE)
 PROJETO_PADRAO = None
 
 BOTFATHER_COMMANDS = (
-    "gitpush - Faz add, commit e push de uma vez\n"
+    "gitpush - Commit + push\n"
     "cancelar - Cancela o comando em andamento\n"
     "restart_bot - Reinicia o bot\n"
     "limpar_conversa - Limpa conversa do Claude\n"
