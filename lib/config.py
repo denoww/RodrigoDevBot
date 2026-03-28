@@ -37,7 +37,6 @@ PROJETOS = descobrir_projetos(WORKSPACE)
 PROJETO_PADRAO = None
 
 BOTFATHER_COMMANDS = (
-    "menu - Exibe este menu\n"
     "gitpush - Faz add, commit e push de uma vez\n"
     "cancelar - Cancela o comando em andamento\n"
     "gitdiff - Mostra diff e sugere mensagem de commit\n"
@@ -47,7 +46,8 @@ BOTFATHER_COMMANDS = (
     "gitbranch - Troca ou cria branch\n"
     "gitreset - Descarta todas as alteracoes locais\n"
     "limpar_conversa - Limpa conversa do Claude\n"
-    "ping_pc - Checa se o desktop esta ligado"
+    "ping_pc - Checa se o desktop esta ligado\n"
+    "menu - Exibe este menu"
 )
 
 DEFAULT_TIMEOUT = 120
