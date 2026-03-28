@@ -321,6 +321,23 @@ except (KeyboardInterrupt, SystemExit):
         echo "  ⏭️  Pulado."
     fi
 
+    # Auto-update (polling de commits)
+    echo ""
+    echo "  🔄 Atualização automática"
+    echo "     Verifica commits novos a cada 2 min e reinicia os bots."
+    echo "     O bot avisa no Telegram antes de reiniciar."
+    echo ""
+    read -p "  Ativar atualizações automáticas? (s/N): " ATIVAR_POLL
+    if [ "$ATIVAR_POLL" = "s" ] || [ "$ATIVAR_POLL" = "S" ]; then
+        local poll_script="$BOT_DIR/gitpull-and-restart.sh"
+        chmod +x "$poll_script"
+        (crontab -l 2>/dev/null | grep -v gitpull-and-restart; echo "*/2 * * * * $poll_script") | crontab -
+        echo "  ✅ Polling ativado (a cada 2 min)"
+        echo "     Gerenciar depois: ./bot.sh poll [on|off|status|log]"
+    else
+        echo "  ⏭️  Pulado. Ativar depois: ./bot.sh poll on"
+    fi
+
     # Salvar config local
     cat > "$BOTS_DIR/$BOT_NOME.conf" << EOF
 BOT_TOKEN="$BOT_TOKEN"

@@ -59,7 +59,11 @@ def executar_hooks(cwd, eventos):
 
 async def pos_push(update_or_msg, cwd, res):
     """Hooks e auto-restart após push bem-sucedido."""
-    msg = update_or_msg.message if hasattr(update_or_msg, 'message') else update_or_msg
+    msg = (
+        getattr(update_or_msg, 'message', None)
+        or getattr(getattr(update_or_msg, 'callback_query', None), 'message', None)
+        or update_or_msg
+    )
     if res["code"] == 0:
         for h in executar_hooks(cwd, {"git_pushed"}):
             await msg.reply_text(h)
