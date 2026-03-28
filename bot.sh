@@ -331,7 +331,7 @@ except (KeyboardInterrupt, SystemExit):
     if [ "$ATIVAR_POLL" = "s" ] || [ "$ATIVAR_POLL" = "S" ]; then
         local poll_script="$BOT_DIR/gitpull-and-restart.sh"
         chmod +x "$poll_script"
-        (crontab -l 2>/dev/null | grep -v gitpull-and-restart; echo "*/2 * * * * $poll_script") | crontab -
+        { crontab -l 2>/dev/null || true; } | grep -v gitpull-and-restart | { cat; echo "*/2 * * * * $poll_script"; } | crontab -
         echo "  ✅ Polling ativado (a cada 2 min)"
         echo "     Gerenciar depois: ./bot.sh atualizacao_automatica [on|off|status|log]"
     else
@@ -527,14 +527,14 @@ cmd_atualizacao_automatica() {
     local poll_log="$BOT_DIR/gitpull.log"
     case "$action" in
         on)
-            (crontab -l 2>/dev/null | grep -v gitpull-and-restart; echo "*/2 * * * * $poll_script") | crontab -
+            { crontab -l 2>/dev/null || true; } | grep -v gitpull-and-restart | { cat; echo "*/2 * * * * $poll_script"; } | crontab -
             echo "✅ Polling ativado (a cada 2 min)"
             ;;
         off)
-            crontab -l 2>/dev/null | grep -v gitpull-and-restart | crontab -
+            { crontab -l 2>/dev/null || true; } | grep -v gitpull-and-restart | crontab -
             echo "🔴 Polling desativado"
             ;;
-        log)
+        log|logs)
             if [ -f "$poll_log" ]; then
                 tail -20 "$poll_log"
             else
