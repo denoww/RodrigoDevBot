@@ -76,6 +76,7 @@ async def exigir_projeto(update: Update) -> bool:
         [InlineKeyboardButton(cfg['nome'], callback_data=f"projeto:{key}")]
         for key, cfg in PROJETOS.items()
     ]
+    teclado.append([InlineKeyboardButton("➕ Novo Projeto", callback_data="novo_projeto")])
     await update.message.reply_text("Escolha o projeto:", reply_markup=InlineKeyboardMarkup(teclado))
     return False
 

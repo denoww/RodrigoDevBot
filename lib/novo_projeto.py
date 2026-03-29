@@ -25,7 +25,7 @@ async def callback_novo_projeto(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 def validar_nome_projeto(nome: str) -> bool:
-    return bool(re.match(r'^[a-z][a-z0-9-]*$', nome))
+    return bool(re.match(r'^[a-z][a-z0-9_-]*$', nome))
 
 
 async def criar_projeto(nome: str, chat_id: int, msg):

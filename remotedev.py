@@ -315,8 +315,8 @@ async def mensagem_livre(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nome = texto.lower().strip()
         if not validar_nome_projeto(nome):
             await update.message.reply_text(
-                "Nome inválido. Use apenas letras minúsculas, números e hífens.\n"
-                "Ex: <code>meu-app</code>",
+                "Nome inválido. Use apenas letras minúsculas, números, hífens e underlines.\n"
+                "Ex: <code>meu-app</code> ou <code>meu_app</code>",
                 parse_mode="HTML",
             )
             return
@@ -581,6 +581,7 @@ def main():
             [InlineKeyboardButton(cfg['nome'], callback_data=f"projeto:{key}")]
             for key, cfg in PROJETOS.items()
         ]
+        teclado.append([InlineKeyboardButton("➕ Novo Projeto", callback_data="novo_projeto")])
         await application.bot.send_message(
             chat_id=CHAT_ID,
             text=f"🟢 {BOT_NOME} iniciado!\nEscolha o projeto:",
