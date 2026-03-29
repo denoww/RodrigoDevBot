@@ -66,6 +66,8 @@ def projeto_label(chat_id: int) -> str:
     return f"{cfg['nome']}"
 
 
+
+
 async def exigir_projeto(update: Update) -> bool:
     """Retorna True se tem projeto selecionado. Se não, pede para escolher."""
     chat_id = update.effective_chat.id
