@@ -279,6 +279,10 @@ async def cmd_restart_todos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         services = [BOT_SERVICE]
     if not services:
         services = [BOT_SERVICE]
+    # Coloca o bot atual por último para não matar o processo antes de reiniciar os outros
+    if BOT_SERVICE in services:
+        services.remove(BOT_SERVICE)
+        services.append(BOT_SERVICE)
     nomes = ", ".join(s.replace("remotedev-", "").replace(".service", "") for s in services)
     await update.message.reply_text(f"🔄 Atualizando e reiniciando todos: {nomes}...")
     restart_cmd = " && ".join(f"systemctl --user restart {s}" for s in services)
