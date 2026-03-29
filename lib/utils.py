@@ -1,4 +1,5 @@
 import os
+import json
 import asyncio
 import subprocess
 import html
@@ -7,11 +8,35 @@ from telegram.ext import ContextTypes
 
 from lib.config import (
     PROJETOS, PROJETO_PADRAO, CHAT_ID, DEFAULT_TIMEOUT,
-    MAX_STDOUT, TELEGRAM_MSG_LIMIT, BOT_NOME,
+    MAX_STDOUT, TELEGRAM_MSG_LIMIT, BOT_NOME, BOT_REPO_DIR,
 )
 
+# Persistência do estado
+_ESTADO_FILE = os.path.join(BOT_REPO_DIR, f".estado-{BOT_NOME}.json")
+
+
+def _carregar_estado() -> dict:
+    """Carrega estado salvo do disco. Retorna dict vazio se não existir."""
+    try:
+        with open(_ESTADO_FILE, "r") as f:
+            dados = json.load(f)
+        # Converte chaves de volta para int (JSON serializa como string)
+        return {int(k): v for k, v in dados.items()}
+    except (FileNotFoundError, json.JSONDecodeError, ValueError):
+        return {}
+
+
+def _salvar_estado():
+    """Persiste estado atual no disco."""
+    try:
+        with open(_ESTADO_FILE, "w") as f:
+            json.dump(estado, f)
+    except Exception:
+        pass  # não quebrar o bot por falha de I/O
+
+
 # Estado global
-estado = {}
+estado = _carregar_estado()
 pendente = {}  # chat_id → mensagem original pendente após escolha de projeto
 push_pendente = {}  # chat_id → {cwd, msg_commit} aguardando confirmação
 reset_pendente = {}  # chat_id → {cwd, label} aguardando confirmação

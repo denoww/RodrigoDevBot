@@ -31,7 +31,7 @@ from lib.config import (
     PROJETOS, BOTFATHER_COMMANDS, WORKSPACE, descobrir_projetos,
 )
 from lib.utils import (
-    estado, pendente, push_pendente, novo_projeto_pendente, ia_apikey_pendente, ia_modelo_pendente,
+    estado, _salvar_estado, pendente, push_pendente, novo_projeto_pendente, ia_apikey_pendente, ia_modelo_pendente,
     projeto_ativo, projeto_config, projeto_path, projeto_label,
     exigir_projeto, autorizado, rodar, rodar_async, enviar_resultado,
     atualizar_nome_bot,
@@ -87,6 +87,7 @@ async def cmd_projeto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         key = context.args[0].lower()
         if key in projetos:
             estado[chat_id] = key
+            _salvar_estado()
             await atualizar_nome_bot(context.bot, chat_id)
             label = projeto_label(chat_id)
             await update.message.reply_text(f"Projeto alterado para {label}")
@@ -151,6 +152,7 @@ async def callback_projeto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.effective_chat.id
     estado[chat_id] = key
+    _salvar_estado()
     await atualizar_nome_bot(context.bot, chat_id)
     label = projeto_label(chat_id)
 

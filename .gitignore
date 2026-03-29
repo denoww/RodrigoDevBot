@@ -9,3 +9,4 @@ venv/
 .venv/
 bots/*.conf
 *.log
+.estado-*.json

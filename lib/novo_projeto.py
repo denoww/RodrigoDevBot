@@ -9,7 +9,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from lib.config import PROJETOS, WORKSPACE, descobrir_projetos
-from lib.utils import novo_projeto_pendente, ia_apikey_pendente, ia_modelo_pendente, estado, autorizado, atualizar_nome_bot
+from lib.utils import novo_projeto_pendente, ia_apikey_pendente, ia_modelo_pendente, estado, _salvar_estado, autorizado, atualizar_nome_bot
 
 # PATH expandido para subprocessos (systemd não carrega .bashrc)
 _ENV = {**os.environ, "PATH": os.path.expanduser("~/bin") + ":" + os.path.expanduser("~/.local/bin") + ":" + os.environ.get("PATH", "")}
@@ -403,6 +403,7 @@ proxy.listen({porta_proxy}, "0.0.0.0", () => console.log("proxy on 0.0.0.0:{port
     PROJETOS.update(descobrir_projetos(WORKSPACE))
     if nome in PROJETOS:
         estado[chat_id] = nome
+        _salvar_estado()
         await atualizar_nome_bot(msg.get_bot(), chat_id)
         await msg.reply_text(f"📂 Projeto ativo alterado para <b>{nome}</b>.", parse_mode="HTML")
 
