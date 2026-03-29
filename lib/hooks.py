@@ -2,7 +2,7 @@ import os
 import asyncio
 import subprocess
 import json as json_mod
-import glob as glob_mod
+
 import time
 
 from lib.config import BOT_NOME, BOT_SERVICE, BOT_REPO_DIR
@@ -87,18 +87,15 @@ async def pos_push(update_or_msg, cwd, res):
         if not services:
             services = [BOT_SERVICE]
         nomes = ", ".join(s.replace("remotedev-", "").replace(".service", "") for s in services)
-        # Aguardar locks de Claude ativo em outros bots antes de reiniciar
-        lock_pattern = "/tmp/remotedev-claude-*.lock"
-        own_lock = f"/tmp/remotedev-claude-{BOT_NOME}.lock"
-        waited = 0
-        while waited < LOCK_TIMEOUT:
-            locks = [f for f in glob_mod.glob(lock_pattern) if f != own_lock]
-            if not locks:
-                break
-            if waited == 0:
-                await msg.reply_text("⏳ Aguardando Claude ativo em outros bots...")
-            await asyncio.sleep(5)
-            waited += 5
         await msg.reply_text(f"🔄 Reiniciando {nomes}...")
-        restart_cmd = " && ".join(f"systemctl --user restart {s}" for s in services)
-        subprocess.Popen(f"sleep 2 && {restart_cmd}", shell=True)
+        # Script aguarda locks de TODOS os bots (inclusive o próprio) antes de cada restart
+        restart_parts = []
+        for s in services:
+            bot_nome = s.replace("remotedev-", "").replace(".service", "")
+            lock_file = f"/tmp/remotedev-claude-{bot_nome}.lock"
+            restart_parts.append(
+                f'w=0; while [ -f "{lock_file}" ] && [ "$w" -lt {LOCK_TIMEOUT} ]; do sleep 5; w=$((w+5)); done; '
+                f'systemctl --user restart {s}'
+            )
+        restart_script = "; ".join(restart_parts)
+        subprocess.Popen(f"sleep 2 && {restart_script}", shell=True)

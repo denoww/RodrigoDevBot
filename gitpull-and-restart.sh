@@ -66,6 +66,17 @@ Reiniciando bot em 5s...
     fi
 
     sleep 5
+
+    # Re-verificar lock antes do restart (pode ter iniciado durante o sleep)
+    waited=0
+    while [ -f "$lock_file" ] && [ "$waited" -lt "$LOCK_TIMEOUT" ]; do
+        if [ "$waited" -eq 0 ]; then
+            echo "$(date '+%Y-%m-%d %H:%M:%S') — ⏳ Bot [$nome] Claude iniciou durante espera, aguardando..." >> "$REPO_DIR/gitpull.log"
+        fi
+        sleep 5
+        waited=$((waited + 5))
+    done
+
     systemctl --user restart "remotedev-$nome" 2>/dev/null && \
         echo "$(date '+%Y-%m-%d %H:%M:%S') — 🔄 Bot [$nome] reiniciado" >> "$REPO_DIR/gitpull.log"
 done
