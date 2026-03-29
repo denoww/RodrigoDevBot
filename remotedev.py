@@ -28,7 +28,7 @@ from telegram.ext import (
 
 from lib.config import (
     BOT_NOME, TOKEN, CHAT_ID, BOT_SERVICE, BOT_REPO_DIR,
-    PROJETOS, BOTFATHER_COMMANDS,
+    PROJETOS, BOTFATHER_COMMANDS, WORKSPACE, descobrir_projetos,
 )
 from lib.utils import (
     estado, pendente, push_pendente, novo_projeto_pendente, ia_apikey_pendente,
@@ -80,21 +80,23 @@ async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_projeto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
+    projetos = descobrir_projetos(WORKSPACE)
+
     if context.args:
         key = context.args[0].lower()
-        if key in PROJETOS:
+        if key in projetos:
             estado[chat_id] = key
             label = projeto_label(chat_id)
             await update.message.reply_text(f"Projeto alterado para {label}")
             await _enviar_diff(update.message, projeto_path(chat_id), label)
         else:
-            nomes = ", ".join(PROJETOS.keys())
+            nomes = ", ".join(projetos.keys())
             await update.message.reply_text(f"Projeto não encontrado. Opções: {nomes}")
         return
 
     atual = projeto_ativo(chat_id)
     teclado = []
-    for key, cfg in PROJETOS.items():
+    for key, cfg in projetos.items():
         marcador = " ✅" if key == atual else ""
         teclado.append([InlineKeyboardButton(
             f"{cfg['nome']}{marcador}",
@@ -117,9 +119,10 @@ async def callback_voltar_projeto(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
     chat_id = update.effective_chat.id
+    projetos = descobrir_projetos(WORKSPACE)
     atual = projeto_ativo(chat_id)
     teclado = []
-    for key, cfg in PROJETOS.items():
+    for key, cfg in projetos.items():
         marcador = " ✅" if key == atual else ""
         teclado.append([InlineKeyboardButton(
             f"{cfg['nome']}{marcador}",
@@ -141,7 +144,7 @@ async def callback_projeto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     key = query.data.replace("projeto:", "")
-    if key not in PROJETOS:
+    if key not in descobrir_projetos(WORKSPACE):
         return
 
     chat_id = update.effective_chat.id
@@ -621,9 +624,10 @@ def main():
                 commands.append(BotCommand(cmd.strip(), desc.strip()))
         await application.bot.set_my_commands(commands)
 
+        projetos_atuais = descobrir_projetos(WORKSPACE)
         teclado = [
             [InlineKeyboardButton(cfg['nome'], callback_data=f"projeto:{key}")]
-            for key, cfg in PROJETOS.items()
+            for key, cfg in projetos_atuais.items()
         ]
         teclado.append([
             InlineKeyboardButton("➕ Novo Projeto", callback_data="novo_projeto"),

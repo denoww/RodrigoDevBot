@@ -275,28 +275,44 @@ Depois, envie a URL pública de forma clara e clicável.
             stderr=asyncio.subprocess.DEVNULL,
             env=_ENV,
         )
-        await asyncio.sleep(3)  # esperar ngrok subir
-        # Pegar URL via API local do ngrok (confiável)
-        api_proc = await asyncio.create_subprocess_exec(
-            "curl", "-s", "http://localhost:4040/api/tunnels",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        api_out, _ = await asyncio.wait_for(api_proc.communicate(), timeout=10)
-        tunnels_data = json.loads(api_out.decode())
+
+        # Retry com backoff para pegar URL pública do ngrok
         tunnel_url = ""
-        for t in tunnels_data.get("tunnels", []):
-            if t.get("name") == nome:
-                tunnel_url = t.get("public_url", "")
-                break
+        for tentativa in range(5):
+            await asyncio.sleep(2 + tentativa)  # 2s, 3s, 4s, 5s, 6s
+            try:
+                api_proc = await asyncio.create_subprocess_exec(
+                    "curl", "-s", "http://localhost:4040/api/tunnels",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                api_out, _ = await asyncio.wait_for(api_proc.communicate(), timeout=5)
+                tunnels_data = json.loads(api_out.decode())
+                for t in tunnels_data.get("tunnels", []):
+                    if t.get("name") == nome:
+                        tunnel_url = t.get("public_url", "")
+                        break
+                if tunnel_url:
+                    break
+            except (asyncio.TimeoutError, json.JSONDecodeError, Exception):
+                continue
 
         _tunnel_procs[nome] = {"dev": dev_proc, "tunnel": tunnel_proc, "porta": porta}
-        await msg.reply_text(
-            f"🌐 <b>URL pública:</b> {tunnel_url}\n"
-            f"🏠 <b>URL local:</b> http://localhost:{porta}\n\n"
-            f"Tunnel ativo enquanto o bot estiver rodando.",
-            parse_mode="HTML",
-        )
+
+        if tunnel_url:
+            await msg.reply_text(
+                f"🌐 <b>URL pública:</b> {tunnel_url}\n"
+                f"🏠 <b>URL local:</b> http://localhost:{porta}\n\n"
+                f"Tunnel ativo enquanto o bot estiver rodando.",
+                parse_mode="HTML",
+            )
+        else:
+            await msg.reply_text(
+                f"⚠️ Tunnel ngrok iniciado mas não consegui obter a URL pública após 5 tentativas.\n\n"
+                f"🏠 <b>URL local:</b> http://localhost:{porta}\n"
+                f"🔧 Tente: <code>/bash curl -s http://localhost:4040/api/tunnels</code> para verificar manualmente.",
+                parse_mode="HTML",
+            )
     except (asyncio.TimeoutError, Exception) as e:
         await msg.reply_text(f"⚠️ Projeto criado, mas erro ao iniciar tunnel:\n<pre>{html.escape(str(e)[:500])}</pre>", parse_mode="HTML")
 
