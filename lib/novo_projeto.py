@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from lib.config import PROJETOS, WORKSPACE, descobrir_projetos
-from lib.utils import novo_projeto_pendente, autorizado
+from lib.utils import novo_projeto_pendente, estado, autorizado
 
 # PATH expandido para subprocessos (systemd não carrega .bashrc)
 _ENV = {**os.environ, "PATH": os.path.expanduser("~/.local/bin") + ":" + os.environ.get("PATH", "")}
@@ -224,6 +224,9 @@ pnpm biome check  # linter + formatter (Biome)
     except (asyncio.TimeoutError, Exception) as e:
         await msg.reply_text(f"⚠️ Projeto criado, mas erro ao iniciar tunnel:\n<pre>{html.escape(str(e)[:500])}</pre>", parse_mode="HTML")
 
-    # Atualizar lista de projetos
+    # Atualizar lista de projetos e trocar para o novo
     PROJETOS.clear()
     PROJETOS.update(descobrir_projetos(WORKSPACE))
+    if nome in PROJETOS:
+        estado[chat_id] = nome
+        await msg.reply_text(f"📂 Projeto ativo alterado para <b>{nome}</b>.", parse_mode="HTML")
