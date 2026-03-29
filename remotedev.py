@@ -46,6 +46,7 @@ from lib.git_ops import (
 )
 from lib.hooks import pos_push
 from lib.novo_projeto import callback_novo_projeto, callback_github_novo, criar_projeto, validar_nome_projeto
+from lib.excluir_projeto import callback_excluir_projeto, callback_confirmar_exclusao, callback_excluir
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -96,9 +97,36 @@ async def cmd_projeto(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{cfg['nome']}{marcador}",
             callback_data=f"projeto:{key}",
         )])
-    teclado.append([InlineKeyboardButton("➕ Novo Projeto", callback_data="novo_projeto")])
+    teclado.append([
+        InlineKeyboardButton("➕ Novo Projeto", callback_data="novo_projeto"),
+        InlineKeyboardButton("🗑 Excluir Projeto", callback_data="excluir_projeto"),
+    ])
 
     await update.message.reply_text(
+        "Selecione o projeto:",
+        reply_markup=InlineKeyboardMarkup(teclado),
+    )
+
+
+@autorizado
+async def callback_voltar_projeto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Volta para a lista de seleção de projetos."""
+    query = update.callback_query
+    await query.answer()
+    chat_id = update.effective_chat.id
+    atual = projeto_ativo(chat_id)
+    teclado = []
+    for key, cfg in PROJETOS.items():
+        marcador = " ✅" if key == atual else ""
+        teclado.append([InlineKeyboardButton(
+            f"{cfg['nome']}{marcador}",
+            callback_data=f"projeto:{key}",
+        )])
+    teclado.append([
+        InlineKeyboardButton("➕ Novo Projeto", callback_data="novo_projeto"),
+        InlineKeyboardButton("🗑 Excluir Projeto", callback_data="excluir_projeto"),
+    ])
+    await query.edit_message_text(
         "Selecione o projeto:",
         reply_markup=InlineKeyboardMarkup(teclado),
     )
@@ -528,6 +556,10 @@ def main():
     app.add_handler(CommandHandler("projeto", cmd_projeto))
     app.add_handler(CallbackQueryHandler(callback_novo_projeto, pattern=r"^novo_projeto$"))
     app.add_handler(CallbackQueryHandler(callback_github_novo, pattern=r"^github_novo:"))
+    app.add_handler(CallbackQueryHandler(callback_voltar_projeto, pattern=r"^voltar_projeto$"))
+    app.add_handler(CallbackQueryHandler(callback_excluir_projeto, pattern=r"^excluir_projeto$"))
+    app.add_handler(CallbackQueryHandler(callback_confirmar_exclusao, pattern=r"^confirmar_exclusao:"))
+    app.add_handler(CallbackQueryHandler(callback_excluir, pattern=r"^excluir:sim:"))
     app.add_handler(CallbackQueryHandler(callback_projeto, pattern=r"^projeto:"))
     app.add_handler(CallbackQueryHandler(callback_branch, pattern=r"^branch:"))
     app.add_handler(CallbackQueryHandler(callback_push, pattern=r"^push:"))
@@ -575,7 +607,10 @@ def main():
             [InlineKeyboardButton(cfg['nome'], callback_data=f"projeto:{key}")]
             for key, cfg in PROJETOS.items()
         ]
-        teclado.append([InlineKeyboardButton("➕ Novo Projeto", callback_data="novo_projeto")])
+        teclado.append([
+            InlineKeyboardButton("➕ Novo Projeto", callback_data="novo_projeto"),
+            InlineKeyboardButton("🗑 Excluir Projeto", callback_data="excluir_projeto"),
+        ])
         await application.bot.send_message(
             chat_id=CHAT_ID,
             text=f"🟢 {BOT_NOME} iniciado!\nEscolha o projeto:",
