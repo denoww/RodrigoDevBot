@@ -95,8 +95,12 @@ def projeto_label(chat_id: int) -> str:
 
 
 
+_ultimo_nome_bot = None
+
+
 async def atualizar_nome_bot(bot, chat_id: int):
     """Atualiza o nome de exibição do bot para refletir o projeto ativo."""
+    global _ultimo_nome_bot
     cfg = projeto_config(chat_id)
     if cfg:
         path = cfg["path"]
@@ -110,10 +114,14 @@ async def atualizar_nome_bot(bot, chat_id: int):
         nome = f"{cfg['nome']} ({branch})" if branch else cfg["nome"]
     else:
         nome = f"remotedev ({BOT_NOME})"
+    nome = nome[:64]
+    if nome == _ultimo_nome_bot:
+        return
     try:
-        await bot.set_my_name(name=nome[:64])
-    except Exception:
-        pass  # ignora erros silenciosamente (rate limit, etc)
+        await bot.set_my_name(name=nome)
+        _ultimo_nome_bot = nome
+    except Exception as e:
+        print(f"⚠️ Erro ao atualizar nome do bot para '{nome}': {e}")
 
 
 async def exigir_projeto(update: Update) -> bool:

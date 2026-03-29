@@ -645,6 +645,7 @@ def main():
                 parse_mode="Markdown",
             )
         else:
+            await atualizar_nome_bot(application.bot, CHAT_ID)
             projetos_atuais = descobrir_projetos(WORKSPACE)
             teclado = [
                 [InlineKeyboardButton(cfg['nome'], callback_data=f"projeto:{key}")]
