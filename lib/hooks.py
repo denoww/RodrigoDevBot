@@ -1,4 +1,5 @@
 import os
+import asyncio
 import subprocess
 import json as json_mod
 
@@ -67,7 +68,7 @@ async def pos_push(update_or_msg, cwd, res):
         return
     if not msg:
         return
-    for h in executar_hooks(cwd, {"git_pushed"}):
+    for h in await asyncio.to_thread(executar_hooks, cwd, {"git_pushed"}):
         await msg.reply_text(h)
     if os.path.realpath(cwd) == os.path.realpath(BOT_REPO_DIR):
         # Reinicia todos os bots remotedev da máquina, não só o atual

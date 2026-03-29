@@ -113,7 +113,7 @@ async def _enviar_diff(msg, cwd, label):
 
 @autorizado
 async def cmd_diff(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mostra diff + gera resumo e mensagem de commit via IA."""
+    """Mostra diff e oferece gerar resumo via IA."""
     if not await exigir_projeto(update):
         return
     chat_id = update.effective_chat.id
@@ -127,23 +127,13 @@ async def cmd_diff(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await _enviar_diff(update.message, cwd, label)
 
-    aguarde = await update.message.reply_text(f"🤖 [{label}] Gerando mensagem de commit...")
-    resumo, msg_commit = await _gerar_commit_ia(cwd)
-
-    try:
-        await aguarde.delete()
-    except Exception:
-        pass
-
-    texto = ""
-    if resumo:
-        texto += f"📝 <b>Resumo:</b> {html.escape(resumo)}\n\n"
-    texto += f"💡 <b>Commit:</b>\n<code>{html.escape(msg_commit or '(sem sugestão)')}</code>"
-
-    try:
-        await update.message.reply_text(texto, parse_mode="HTML")
-    except Exception:
-        await update.message.reply_text(texto)
+    teclado = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📝 Gerar resumo das alterações", callback_data="resumo_diff")]
+    ])
+    await update.message.reply_text(
+        "Deseja um resumo do que foi modificado?",
+        reply_markup=teclado,
+    )
 
 
 @autorizado
@@ -334,6 +324,29 @@ async def callback_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await rodar_async("git checkout .", cwd=cwd)
     await rodar_async("git clean -fd", cwd=cwd)
     await query.edit_message_text(f"🗑️ Todas as alterações descartadas! [{label}]")
+
+
+async def callback_resumo_diff(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gera resumo das alterações via IA quando o usuário pede."""
+    query = update.callback_query
+    await query.answer()
+
+    chat_id = update.effective_chat.id
+    cwd = projeto_path(chat_id)
+    label = projeto_label(chat_id)
+
+    await query.edit_message_text(f"🤖 [{label}] Gerando resumo...")
+    resumo, msg_commit = await _gerar_commit_ia(cwd)
+
+    texto = ""
+    if resumo:
+        texto += f"📝 <b>Resumo:</b> {html.escape(resumo)}\n\n"
+    texto += f"💡 <b>Commit:</b>\n<code>{html.escape(msg_commit or '(sem sugestão)')}</code>"
+
+    try:
+        await query.edit_message_text(texto, parse_mode="HTML")
+    except Exception:
+        await query.edit_message_text(texto)
 
 
 async def callback_branch(update: Update, context: ContextTypes.DEFAULT_TYPE):

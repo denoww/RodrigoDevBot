@@ -32,7 +32,7 @@ from lib.config import (
 )
 from lib.utils import (
     estado, pendente, push_pendente, novo_projeto_pendente,
-    projeto_ativo, projeto_config, projeto_path, projeto_label, resumo_git,
+    projeto_ativo, projeto_config, projeto_path, projeto_label,
     exigir_projeto, autorizado, rodar, rodar_async, enviar_resultado,
 )
 from lib.claude import (
@@ -41,7 +41,8 @@ from lib.claude import (
 )
 from lib.git_ops import (
     cmd_diff, cmd_push, cmd_gitbranch, cmd_gitreset,
-    callback_branch, callback_push, callback_reset, _enviar_diff, _gerar_commit_ia, git_push,
+    callback_branch, callback_push, callback_reset, callback_resumo_diff,
+    _enviar_diff, _gerar_commit_ia, git_push,
 )
 from lib.hooks import pos_push
 from lib.novo_projeto import callback_novo_projeto, criar_projeto, validar_nome_projeto
@@ -80,11 +81,8 @@ async def cmd_projeto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if key in PROJETOS:
             estado[chat_id] = key
             label = projeto_label(chat_id)
-            status = resumo_git(projeto_path(chat_id))
-            texto = f"Projeto alterado para {label}"
-            if status:
-                texto += f"\n\n📝 Alterações pendentes:\n<pre>{html.escape(status)}</pre>"
-            await update.message.reply_text(texto, parse_mode="HTML")
+            await update.message.reply_text(f"Projeto alterado para {label}")
+            await _enviar_diff(update.message, projeto_path(chat_id), label)
         else:
             nomes = ", ".join(PROJETOS.keys())
             await update.message.reply_text(f"Projeto não encontrado. Opções: {nomes}")
@@ -124,11 +122,8 @@ async def callback_projeto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"Projeto: {label}\n⏳ Retomando: {cmd_pendente}")
         await processar_comando(chat_id, cmd_pendente, query.message, context)
     else:
-        status = resumo_git(projeto_path(chat_id))
-        texto = f"Projeto alterado para {label}"
-        if status:
-            texto += f"\n\n📝 Alterações pendentes:\n<pre>{html.escape(status)}</pre>"
-        await query.edit_message_text(texto, parse_mode="HTML")
+        await query.edit_message_text(f"Projeto alterado para {label}")
+        await _enviar_diff(query.message, projeto_path(chat_id), label)
 
 
 async def processar_comando(chat_id, texto, msg, context):
@@ -145,13 +140,13 @@ async def processar_comando(chat_id, texto, msg, context):
     elif texto.startswith("/bash "):
         cmd = texto.split(" ", 1)[1]
         await msg.reply_text("⏳ Executando...")
-        res = rodar(cmd, cwd=cwd)
+        res = await rodar_async(cmd, cwd=cwd)
         await msg.reply_text(res["stdout"] or res["stderr"] or "(sem saída)")
 
     elif texto.startswith("/gitpush"):
         msg_commit = texto.split(" ", 1)[1].strip() if " " in texto else ""
 
-        status = rodar("git status --short", cwd=cwd)
+        status = await rodar_async("git status --short", cwd=cwd)
         if not status["stdout"]:
             await msg.reply_text("⚠️ Nenhuma alteração encontrada para commitar.")
             return
@@ -184,13 +179,10 @@ async def processar_comando(chat_id, texto, msg, context):
 
     elif texto.startswith("/gitdiff"):
         await _enviar_diff(msg, cwd, label)
-        await msg.reply_text(f"🤖 [{label}] Gerando mensagem de commit...")
-        resumo, msg_commit = await _gerar_commit_ia(cwd)
-        texto_resp = ""
-        if resumo:
-            texto_resp += f"📝 Resumo: {resumo}\n\n"
-        texto_resp += f"💡 Commit: {msg_commit or '(sem sugestão)'}"
-        await msg.reply_text(texto_resp)
+        teclado = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📝 Gerar resumo das alterações", callback_data="resumo_diff")]
+        ])
+        await msg.reply_text("Deseja um resumo do que foi modificado?", reply_markup=teclado)
 
     else:
         await rodar_claude_completo(msg, chat_id, texto)
@@ -218,7 +210,7 @@ async def cmd_bash(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text("⏳ Executando...")
-    res = rodar(cmd, cwd=projeto_path(update.effective_chat.id))
+    res = await rodar_async(cmd, cwd=projeto_path(update.effective_chat.id))
     await enviar_resultado(update, res, cmd)
 
 
@@ -539,6 +531,7 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_branch, pattern=r"^branch:"))
     app.add_handler(CallbackQueryHandler(callback_push, pattern=r"^push:"))
     app.add_handler(CallbackQueryHandler(callback_reset, pattern=r"^reset:"))
+    app.add_handler(CallbackQueryHandler(callback_resumo_diff, pattern=r"^resumo_diff$"))
 
     # Comandos
     app.add_handler(CommandHandler("start", cmd_menu))
