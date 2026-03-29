@@ -321,6 +321,39 @@ except (KeyboardInterrupt, SystemExit):
         echo "  ⏭️  Pulado."
     fi
 
+    # ngrok auth token (opcional, para URL pública em projetos)
+    echo ""
+    echo "  🌐 ngrok Auth Token (para URL pública nos projetos)"
+    echo "     Sem ele, projetos não terão túnel público automático."
+    echo "     Pegue em: https://dashboard.ngrok.com/get-started/your-authtoken"
+    echo ""
+    read -p "  Cole o NGROK_AUTHTOKEN (ou Enter para pular): " NGROK_TOKEN
+
+    if [ -n "$NGROK_TOKEN" ]; then
+        # Instalar ngrok se não existir
+        if ! command -v ngrok &>/dev/null && [ ! -f "$HOME/bin/ngrok" ]; then
+            echo "  📦 Instalando ngrok..."
+            mkdir -p "$HOME/bin"
+            curl -sSL -o /tmp/ngrok.tgz https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+            tar xzf /tmp/ngrok.tgz -C "$HOME/bin/"
+            rm -f /tmp/ngrok.tgz
+            echo "  ✅ ngrok instalado em ~/bin/ngrok"
+        fi
+        # Configurar auth token
+        NGROK_CMD=$(command -v ngrok 2>/dev/null || echo "$HOME/bin/ngrok")
+        "$NGROK_CMD" config add-authtoken "$NGROK_TOKEN" 2>/dev/null
+        salvar_env_bashrc "NGROK_AUTHTOKEN" "$NGROK_TOKEN"
+        export "NGROK_AUTHTOKEN=$NGROK_TOKEN"
+        echo "  ✅ ngrok configurado"
+    else
+        NGROK_TOKEN="${NGROK_AUTHTOKEN:-}"
+        if [ -n "$NGROK_TOKEN" ]; then
+            echo "  ℹ️  Usando NGROK_AUTHTOKEN já configurado."
+        else
+            echo "  ⏭️  Pulado."
+        fi
+    fi
+
     # Auto-update (polling de commits)
     echo ""
     echo "  🔄 Atualização automática"
@@ -355,10 +388,14 @@ EOF
 
     # Workspace e PATH para o systemd
     echo "REMOTEDEV_WORKSPACE=$WORKSPACE" >> "$SERVICE_DIR/$SERVICE_NAME.env"
-    echo "PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" >> "$SERVICE_DIR/$SERVICE_NAME.env"
+    echo "PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" >> "$SERVICE_DIR/$SERVICE_NAME.env"
 
     if [ -n "$OPENAI_KEY" ]; then
         echo "OPENAI_API_KEY=$OPENAI_KEY" >> "$SERVICE_DIR/$SERVICE_NAME.env"
+    fi
+
+    if [ -n "$NGROK_TOKEN" ]; then
+        echo "NGROK_AUTHTOKEN=$NGROK_TOKEN" >> "$SERVICE_DIR/$SERVICE_NAME.env"
     fi
 
     # Criar serviço de notificação de falha
@@ -618,6 +655,19 @@ cmd_setup_ec2() {
         fi
     else
         echo "✅ Claude CLI: $(claude --version 2>/dev/null || echo 'instalado')"
+    fi
+
+    # Instalar ngrok
+    if ! command -v ngrok &>/dev/null && [ ! -f "$HOME/bin/ngrok" ]; then
+        echo ""
+        echo "🌐 Instalando ngrok..."
+        mkdir -p "$HOME/bin"
+        curl -sSL -o /tmp/ngrok.tgz https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+        tar xzf /tmp/ngrok.tgz -C "$HOME/bin/"
+        rm -f /tmp/ngrok.tgz
+        echo "✅ ngrok instalado em ~/bin/ngrok"
+    else
+        echo "✅ ngrok: $(ngrok version 2>/dev/null || $HOME/bin/ngrok version 2>/dev/null || echo 'instalado')"
     fi
 
     # Criar workspace se não existir

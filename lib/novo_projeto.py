@@ -2,6 +2,7 @@ import os
 import re
 import html
 import json
+import shutil
 import asyncio
 import socket
 
@@ -12,7 +13,7 @@ from lib.config import PROJETOS, WORKSPACE, descobrir_projetos
 from lib.utils import novo_projeto_pendente, estado, autorizado
 
 # PATH expandido para subprocessos (systemd não carrega .bashrc)
-_ENV = {**os.environ, "PATH": os.path.expanduser("~/.local/bin") + ":" + os.environ.get("PATH", "")}
+_ENV = {**os.environ, "PATH": os.path.expanduser("~/bin") + ":" + os.path.expanduser("~/.local/bin") + ":" + os.environ.get("PATH", "")}
 
 # Processos de dev server + tunnel por projeto (para cleanup)
 _tunnel_procs = {}  # nome → {"dev": Process, "tunnel": Process}
@@ -170,9 +171,9 @@ Quando o usuário pedir para ligar o servidor, URL pública, ou testar o app:
 **Execute os comandos abaixo EM UMA ÚNICA chamada bash, todos juntos:**
 
 ```bash
-# Matar processos anteriores (se houver)
-pkill -f 'next dev' 2>/dev/null || true
-pkill -f 'localtunnel' 2>/dev/null || true
+# Matar processos anteriores SOMENTE deste projeto (pela porta {porta})
+pkill -f 'next dev.*--port {porta}' 2>/dev/null || true
+pkill -f 'ngrok http {porta}' 2>/dev/null || true
 sleep 1
 
 # Iniciar dev server em background
@@ -182,18 +183,25 @@ sleep 4
 # Verificar se o servidor subiu
 curl -s -o /dev/null -w "%{{http_code}}" http://localhost:{porta}
 
-# Iniciar tunnel e capturar URL
-nohup npx --yes localtunnel --port {porta} > /tmp/{nome}-tunnel.log 2>&1 &
-sleep 5
-cat /tmp/{nome}-tunnel.log
+# Iniciar ngrok e capturar URL via API
+nohup ngrok http {porta} --log /tmp/{nome}-ngrok.log > /dev/null 2>&1 &
+sleep 3
+
+# Pegar URL pública via API do ngrok (confiável, não trava)
+curl -s http://localhost:4040/api/tunnels | python3 -c "
+import sys, json
+for t in json.load(sys.stdin)['tunnels']:
+    if ':{porta}' in t['config']['addr']:
+        print(t['public_url']); break
+"
 ```
 
-Depois, envie a URL do tunnel de forma clara e clicável.
+Depois, envie a URL pública de forma clara e clicável.
 
 **Regras importantes:**
 - Sempre rode TODOS os comandos numa única chamada bash — se separar, os processos background morrem
 - Sempre use `nohup ... &` para processos de longa duração
-- Sempre use `npx --yes` (nunca sem `--yes`) para evitar prompts interativos
+- NUNCA mate processos genéricos (ex: `pkill -f ngrok`) — sempre filtre pela porta {porta} para não afetar outros projetos
 - Sempre use `|| true` após `pkill` para não travar se o processo não existir
 - Se o curl retornar 000, espere mais alguns segundos e tente novamente
 """
@@ -242,19 +250,28 @@ Depois, envie a URL do tunnel de forma clara e clicável.
         )
         await asyncio.sleep(4)  # esperar o dev server subir
 
+        ngrok_cmd = shutil.which("ngrok") or os.path.expanduser("~/bin/ngrok")
         tunnel_proc = await asyncio.create_subprocess_exec(
-            "npx", "--yes", "localtunnel", "--port", str(porta),
+            ngrok_cmd, "http", str(porta),
             cwd=projeto_dir,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
             env=_ENV,
         )
-        # localtunnel imprime a URL na primeira linha do stdout
-        url_line = await asyncio.wait_for(tunnel_proc.stdout.readline(), timeout=15)
-        tunnel_url = url_line.decode().strip()
-        # Extrair URL — output é "your url is: https://xyz.loca.lt"
-        if "url is:" in tunnel_url.lower():
-            tunnel_url = tunnel_url.split("url is:")[-1].strip()
+        await asyncio.sleep(3)  # esperar ngrok subir
+        # Pegar URL via API local do ngrok (confiável)
+        api_proc = await asyncio.create_subprocess_exec(
+            "curl", "-s", "http://localhost:4040/api/tunnels",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        api_out, _ = await asyncio.wait_for(api_proc.communicate(), timeout=10)
+        tunnels_data = json.loads(api_out.decode())
+        tunnel_url = ""
+        for t in tunnels_data.get("tunnels", []):
+            if f":{porta}" in t.get("config", {}).get("addr", ""):
+                tunnel_url = t.get("public_url", "")
+                break
 
         _tunnel_procs[nome] = {"dev": dev_proc, "tunnel": tunnel_proc, "porta": porta}
         await msg.reply_text(
