@@ -20,6 +20,11 @@ if [ "$LOCAL" = "$REMOTE" ]; then
     exit 0
 fi
 
+# Se o remote já está contido no local (local à frente), não há nada pra atualizar
+if git -C "$REPO_DIR" merge-base --is-ancestor "origin/$BRANCH" "$BRANCH" 2>/dev/null; then
+    exit 0
+fi
+
 # Tem commits novos — pull e reinicia todos os bots
 echo "$(date '+%Y-%m-%d %H:%M:%S') — Novos commits detectados (local=$LOCAL remote=$REMOTE)" >> "$REPO_DIR/gitpull.log"
 
