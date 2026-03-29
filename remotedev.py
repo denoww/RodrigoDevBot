@@ -45,7 +45,7 @@ from lib.git_ops import (
     _enviar_diff, _gerar_commit_ia, git_push,
 )
 from lib.hooks import pos_push
-from lib.novo_projeto import callback_novo_projeto, criar_projeto, validar_nome_projeto
+from lib.novo_projeto import callback_novo_projeto, callback_github_novo, criar_projeto, validar_nome_projeto
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -527,6 +527,7 @@ def main():
     app.add_handler(CommandHandler("p", cmd_projeto))
     app.add_handler(CommandHandler("projeto", cmd_projeto))
     app.add_handler(CallbackQueryHandler(callback_novo_projeto, pattern=r"^novo_projeto$"))
+    app.add_handler(CallbackQueryHandler(callback_github_novo, pattern=r"^github_novo:"))
     app.add_handler(CallbackQueryHandler(callback_projeto, pattern=r"^projeto:"))
     app.add_handler(CallbackQueryHandler(callback_branch, pattern=r"^branch:"))
     app.add_handler(CallbackQueryHandler(callback_push, pattern=r"^push:"))

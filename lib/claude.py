@@ -16,6 +16,26 @@ claude_processos = {}  # cwd → subprocess.Popen
 claude_locks = {}  # cwd → asyncio.Lock
 claude_cancelado = set()  # cwds com stop ativo
 
+# Lock file para sinalizar que Claude está rodando (evita restart durante execução)
+CLAUDE_LOCK_FILE = f"/tmp/remotedev-claude-{BOT_NOME}.lock"
+
+
+def _criar_lock():
+    """Cria lock file indicando que o Claude está em execução."""
+    try:
+        with open(CLAUDE_LOCK_FILE, "w") as f:
+            f.write(str(os.getpid()))
+    except OSError:
+        pass
+
+
+def _remover_lock():
+    """Remove lock file após execução do Claude."""
+    try:
+        os.remove(CLAUDE_LOCK_FILE)
+    except OSError:
+        pass
+
 # Logger com rotação
 LOG_FILE_CLAUDE = os.path.join(BOT_REPO_DIR, f"claude-{BOT_NOME}.log")
 _claude_logger = logging.getLogger(f"claude-{BOT_NOME}")
@@ -49,6 +69,7 @@ def rodar_claude(prompt, cwd, session_id=None):
         cmd_args += ['--resume', session_id]
 
     try:
+        _criar_lock()
         proc = subprocess.Popen(
             cmd_args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             cwd=cwd, text=True, env={**os.environ, "TERM": "dumb"},
@@ -62,6 +83,7 @@ def rodar_claude(prompt, cwd, session_id=None):
             stdout, stderr = proc.communicate()
         finally:
             claude_processos.pop(cwd, None)
+            _remover_lock()
 
         stdout = stdout.strip()
         stderr = stderr.strip()
@@ -72,6 +94,7 @@ def rodar_claude(prompt, cwd, session_id=None):
 
     except Exception as e:
         claude_processos.pop(cwd, None)
+        _remover_lock()
         res = {"stdout": "", "stderr": str(e), "code": -1, "truncated": False}
 
     res["_raw"] = res["stdout"]

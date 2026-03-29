@@ -4,7 +4,7 @@ import html
 import asyncio
 import socket
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from lib.config import PROJETOS, WORKSPACE, descobrir_projetos
@@ -167,7 +167,7 @@ pnpm biome check  # linter + formatter (Biome)
         f.write(biome_config)
 
     # Git init + primeiro commit
-    await msg.reply_text("🔧 Configurando Git + GitHub...")
+    await msg.reply_text("🔧 Configurando Git...")
     git_cmds = [
         ["git", "add", "."],
         ["git", "commit", "-m", "feat: init projeto com Next.js + TS + Tailwind + shadcn + Zod + Biome"],
@@ -180,34 +180,6 @@ pnpm biome check  # linter + formatter (Biome)
             env=_ENV,
         )
         await proc.communicate()
-
-    # Criar repo no GitHub e push
-    proc = await asyncio.create_subprocess_exec(
-        "gh", "repo", "create", nome, "--public", "--source", projeto_dir, "--push",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=_ENV,
-    )
-    stdout, stderr = await proc.communicate()
-    gh_output = stdout.decode().strip()
-    gh_erro = stderr.decode().strip()
-
-    if proc.returncode != 0:
-        await msg.reply_text(
-            f"Projeto criado localmente mas erro no GitHub:\n<pre>{html.escape(gh_erro[:1500])}</pre>\n\n"
-            f"Você pode criar manualmente com:\n<code>gh repo create {nome} --public --source {projeto_dir} --push</code>",
-            parse_mode="HTML",
-        )
-    else:
-        repo_url = gh_output if gh_output.startswith("http") else f"https://github.com/{gh_output}"
-        await msg.reply_text(
-            f"✅ Projeto <b>{nome}</b> criado!\n\n"
-            f"📁 <code>{projeto_dir}</code>\n"
-            f"🔗 {repo_url}\n\n"
-            f"Stack: Next.js + TS + Tailwind + shadcn/ui + Zod + Biome\n\n"
-            f"Use /projeto para selecioná-lo.",
-            parse_mode="HTML",
-        )
 
     # Iniciar dev server + tunnel público
     porta = _proxima_porta_livre()
@@ -252,3 +224,59 @@ pnpm biome check  # linter + formatter (Biome)
     if nome in PROJETOS:
         estado[chat_id] = nome
         await msg.reply_text(f"📂 Projeto ativo alterado para <b>{nome}</b>.", parse_mode="HTML")
+
+    # Perguntar se quer subir pro GitHub
+    teclado = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Sim, subir pro GitHub", callback_data=f"github_novo:sim:{nome}"),
+            InlineKeyboardButton("❌ Não", callback_data=f"github_novo:nao:{nome}"),
+        ]
+    ])
+    await msg.reply_text(
+        f"Deseja criar o repositório no GitHub e fazer push?",
+        reply_markup=teclado,
+    )
+
+
+@autorizado
+async def callback_github_novo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Callback para decisão de subir ou não pro GitHub após criar projeto."""
+    query = update.callback_query
+    await query.answer()
+    _, resposta, nome = query.data.split(":", 2)
+
+    if resposta == "nao":
+        await query.edit_message_text(
+            f"✅ Projeto <b>{nome}</b> criado apenas localmente.\n\n"
+            f"📁 <code>{os.path.join(WORKSPACE, nome)}</code>\n"
+            f"Stack: Next.js + TS + Tailwind + shadcn/ui + Zod + Biome",
+            parse_mode="HTML",
+        )
+        return
+
+    projeto_dir = os.path.join(WORKSPACE, nome)
+    await query.edit_message_text("🔧 Criando repo no GitHub e fazendo push...")
+
+    proc = await asyncio.create_subprocess_exec(
+        "gh", "repo", "create", nome, "--public", "--source", projeto_dir, "--push",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=_ENV,
+    )
+    stdout, stderr = await proc.communicate()
+    gh_output = stdout.decode().strip()
+    gh_erro = stderr.decode().strip()
+
+    if proc.returncode != 0:
+        await query.edit_message_text(
+            f"Erro ao criar repo no GitHub:\n<pre>{html.escape(gh_erro[:1500])}</pre>\n\n"
+            f"Você pode criar manualmente com:\n<code>gh repo create {nome} --public --source {projeto_dir} --push</code>",
+            parse_mode="HTML",
+        )
+    else:
+        repo_url = gh_output if gh_output.startswith("http") else f"https://github.com/{gh_output}"
+        await query.edit_message_text(
+            f"✅ Repo criado no GitHub!\n\n"
+            f"🔗 {repo_url}",
+            parse_mode="HTML",
+        )

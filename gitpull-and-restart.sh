@@ -30,11 +30,24 @@ git -C "$REPO_DIR" pull --ff-only origin "$BRANCH" >> "$REPO_DIR/gitpull.log" 2>
 
 SERVICE_DIR="$HOME/.config/systemd/user"
 
+LOCK_TIMEOUT=300  # esperar no máximo 5 min pelo Claude terminar
+
 for conf in "$BOTS_DIR"/*.conf; do
     [ -f "$conf" ] || continue
     nome=$(basename "$conf" .conf)
     nome_upper=$(echo "$nome" | tr '[:lower:]' '[:upper:]')
     env_file="$SERVICE_DIR/remotedev-$nome.env"
+
+    # Aguardar se Claude está rodando neste bot
+    lock_file="/tmp/remotedev-claude-$nome.lock"
+    waited=0
+    while [ -f "$lock_file" ] && [ "$waited" -lt "$LOCK_TIMEOUT" ]; do
+        if [ "$waited" -eq 0 ]; then
+            echo "$(date '+%Y-%m-%d %H:%M:%S') — ⏳ Bot [$nome] com Claude ativo, aguardando..." >> "$REPO_DIR/gitpull.log"
+        fi
+        sleep 5
+        waited=$((waited + 5))
+    done
 
     # Notificar no Telegram antes de reiniciar
     if [ -f "$env_file" ]; then
