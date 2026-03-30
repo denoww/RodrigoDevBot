@@ -116,7 +116,7 @@ async def criar_projeto(nome: str, chat_id: int, msg):
     await msg.reply_text("📦 Instalando Zod + Biome + shadcn...")
     extras = [
         ["pnpm", "add", "zod"],
-        ["pnpm", "add", "-D", "@biomejs/biome"],
+        ["pnpm", "add", "-D", "@biomejs/biome", "pm2"],
         ["pnpm", "dlx", "shadcn@latest", "init", "-y", "--defaults"],
     ]
     for cmd in extras:
@@ -151,10 +151,7 @@ async def criar_projeto(nome: str, chat_id: int, msg):
     # Remover scripts legado do Next.js/vinext init
     for chave in ("dev:vinext", "lint"):
         pkg["scripts"].pop(chave, None)
-    # Adicionar pm2 como devDependency
-    if "devDependencies" not in pkg:
-        pkg["devDependencies"] = {}
-    pkg["devDependencies"]["pm2"] = "^6.0.14"
+    # pm2 já instalado via pnpm add -D na etapa 3
     with open(pkg_path, "w") as f:
         json.dump(pkg, f, indent=2, ensure_ascii=False)
         f.write("\n")
