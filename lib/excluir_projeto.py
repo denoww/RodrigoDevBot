@@ -82,30 +82,27 @@ async def callback_excluir(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     projeto_dir = PROJETOS[nome]["path"]
 
-    # Matar processos de dev server + proxy deste projeto
+    # Parar e remover processos PM2 deste projeto
     info = _tunnel_procs.pop(nome, None)
-    if info:
-        porta = info.get("porta")
-        if porta:
-            for pattern in [f"vinext dev.*--port {porta}", f"{nome}-dev.log", f"proxy{porta}"]:
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        "pkill", "-f", pattern,
-                        stdout=asyncio.subprocess.DEVNULL,
-                        stderr=asyncio.subprocess.DEVNULL,
-                    )
-                    await proc.communicate()
-                except Exception:
-                    pass
-        # Remover tunnel ngrok via API
+    for pm2_proc in [f"{nome}-dev", f"{nome}-proxy", f"{nome}-ngrok"]:
         try:
             proc = await asyncio.create_subprocess_exec(
-                "curl", "-s", "-X", "DELETE", f"http://localhost:4040/api/tunnels/{nome}",
-                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                "npx", "pm2", "delete", pm2_proc,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
             await proc.communicate()
         except Exception:
             pass
+    # Remover tunnel ngrok via API
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "curl", "-s", "-X", "DELETE", f"http://localhost:4040/api/tunnels/{nome}",
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.communicate()
+    except Exception:
+        pass
 
     # Excluir diretório (force: corrige permissões de pastas como .turbo, node_modules)
     def _force_remove(func, path, exc_info):

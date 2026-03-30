@@ -144,9 +144,17 @@ async def criar_projeto(nome: str, chat_id: int, msg):
     pkg["scripts"]["deploy"] = "vinext deploy"
     pkg["scripts"]["deploy:preview"] = "vinext deploy --preview"
     pkg["scripts"]["check"] = "biome check --write ."
+    pkg["scripts"]["pm2"] = "pm2 start ecosystem.config.cjs"
+    pkg["scripts"]["pm2:stop"] = "pm2 stop ecosystem.config.cjs"
+    pkg["scripts"]["pm2:logs"] = "pm2 logs"
+    pkg["scripts"]["pm2:status"] = "pm2 status"
     # Remover scripts legado do Next.js/vinext init
     for chave in ("dev:vinext", "lint"):
         pkg["scripts"].pop(chave, None)
+    # Adicionar pm2 como devDependency
+    if "devDependencies" not in pkg:
+        pkg["devDependencies"] = {}
+    pkg["devDependencies"]["pm2"] = "^6.0.14"
     with open(pkg_path, "w") as f:
         json.dump(pkg, f, indent=2, ensure_ascii=False)
         f.write("\n")
@@ -163,6 +171,7 @@ Projeto vinext (Vite + Cloudflare Workers) com TypeScript, Tailwind CSS, shadcn/
 - **Validação:** Zod
 - **Linter/Formatter:** Biome
 - **Pacotes:** pnpm
+- **Processos dev:** PM2
 
 ## Comandos
 
@@ -172,6 +181,10 @@ pnpm build            # build de produção
 pnpm check            # linter + formatter (Biome, com auto-fix)
 pnpm deploy           # deploy para Cloudflare Workers
 pnpm deploy:preview   # deploy para ambiente preview
+pnpm pm2              # inicia dev server + proxy + ngrok (PM2)
+pnpm pm2:stop         # para tudo
+pnpm pm2:logs         # ver logs em tempo real
+pnpm pm2:status       # status dos processos
 ```
 
 **Porta do dev server: {porta}** — nunca use a porta 3000.
@@ -185,24 +198,26 @@ pnpm deploy:preview   # deploy para ambiente preview
 
 ## Ligar servidor e URL pública
 
-**SEMPRE que ligar o dev server, use o script `dev-server.sh` e envie a URL pública.** O usuário acessa remotamente e precisa da URL pública sempre.
+**SEMPRE que ligar o dev server, use `pnpm pm2` e envie a URL pública.** O usuário acessa remotamente e precisa da URL pública sempre.
 
 ```bash
-./dev-server.sh
+pnpm pm2
 ```
 
-O script faz tudo automaticamente:
-1. Mata processos anteriores deste projeto (sem afetar outros)
-2. Inicia o dev server com **auto-restart** (se cair, reinicia sozinho em 2s)
-3. Inicia proxy Node.js (0.0.0.0:{porta_proxy} -> 127.0.0.1:{porta}) para o ngrok dockerizado alcançar
-4. Cria tunnel ngrok via API REST com subdomain `{nome}-painel`
+PM2 gerencia 3 processos independentes:
 
-Depois, envie a URL pública de forma clara e clicável.
+| Processo | O que faz | Auto-restart |
+|---|---|---|
+| {nome}-dev | vinext dev (porta {porta}, HMR) | Sim |
+| {nome}-proxy | Proxy {porta_proxy}→{porta} (com tratamento de ECONNRESET) | Sim |
+| {nome}-ngrok | Cria e monitora túnel ngrok | Sim |
+
+Se qualquer um crashar, PM2 reinicia automaticamente em 1-2 segundos.
 
 **Regras importantes:**
-- NUNCA mate processos genéricos (ex: `pkill -f ngrok`) — o script filtra pelo nome `{nome}`
+- Para parar tudo: `pnpm pm2:stop` (NUNCA mate processos com pkill)
 - O tunnel é criado via API REST na porta 4040 (agente ngrok do sistema), NÃO via CLI `ngrok http`
-- Log do dev server: `/tmp/{nome}-dev.log`
+- Logs: `pnpm pm2:logs` ou `/tmp/{nome}-dev.log`, `/tmp/{nome}-proxy.log`, `/tmp/{nome}-ngrok.log`
 """
     with open(os.path.join(projeto_dir, "CLAUDE.md"), "w") as f:
         f.write(claude_md)
@@ -222,90 +237,139 @@ Depois, envie a URL pública de forma clara e clicável.
     with open(os.path.join(projeto_dir, "biome.json"), "w") as f:
         f.write(biome_config)
 
-    # 7) Gerar dev-server.sh (auto-restart + proxy + tunnel ngrok)
-    dev_server_sh = f"""#!/usr/bin/env bash
-# dev-server.sh — Inicia dev server com auto-restart, proxy e tunnel ngrok
-# Uso: ./dev-server.sh
-set -euo pipefail
+    # 7) Gerar ecosystem.config.cjs + scripts/proxy.cjs + scripts/ngrok-tunnel.sh (PM2)
+    scripts_dir = os.path.join(projeto_dir, "scripts")
+    os.makedirs(scripts_dir, exist_ok=True)
 
-NOME="{nome}"
-PORTA={porta}
-PORTA_PROXY={porta_proxy}
-LOG="/tmp/$NOME-dev.log"
-PROXY_SCRIPT="/tmp/proxy$PORTA.js"
-PROXY_LOG="/tmp/proxy$PORTA.log"
-HOST_IP="172.18.0.1"  # IP do host visto pelo container Docker
+    # ecosystem.config.cjs
+    ecosystem_config = f"""module.exports = {{
+  apps: [
+    {{
+      name: "{nome}-dev",
+      script: "pnpm",
+      args: "dev",
+      autorestart: true,
+      max_restarts: 50,
+      restart_delay: 2000,
+      log_file: "/tmp/{nome}-dev.log",
+    }},
+    {{
+      name: "{nome}-proxy",
+      script: "./scripts/proxy.cjs",
+      interpreter: "node",
+      autorestart: true,
+      max_restarts: 50,
+      restart_delay: 1000,
+      log_file: "/tmp/{nome}-proxy.log",
+    }},
+    {{
+      name: "{nome}-ngrok",
+      script: "./scripts/ngrok-tunnel.sh",
+      interpreter: "bash",
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 5000,
+      log_file: "/tmp/{nome}-ngrok.log",
+    }},
+  ],
+}};
+"""
+    with open(os.path.join(projeto_dir, "ecosystem.config.cjs"), "w") as f:
+        f.write(ecosystem_config)
 
-# ── Cleanup de processos anteriores deste projeto ──────────────────
-pkill -f "vinext dev.*--port $PORTA" 2>/dev/null || true
-pkill -f "$NOME-dev.log" 2>/dev/null || true
-pkill -f "proxy$PORTA" 2>/dev/null || true
-sleep 2
-
-# ── Dev server com auto-restart ────────────────────────────────────
-nohup bash -c "while true; do pnpm dev >> $LOG 2>&1; echo \\"[\\$(date)] Server caiu, reiniciando em 2s...\\" >> $LOG; sleep 2; done" > /dev/null 2>&1 &
-DEV_PID=$!
-echo "Dev server PID: $DEV_PID (porta $PORTA, log: $LOG)"
-sleep 5
-
-# Verificar se subiu
-HTTP_CODE=$(curl -s -o /dev/null -w "%{{http_code}}" "http://127.0.0.1:$PORTA" 2>/dev/null || echo "000")
-if [ "$HTTP_CODE" = "000" ]; then
-    echo "⚠️  Dev server pode não ter subido ainda (HTTP $HTTP_CODE). Verifique $LOG"
-else
-    echo "✅ Dev server respondendo (HTTP $HTTP_CODE)"
-fi
-
-# ── Proxy Node.js (para ngrok dockerizado alcançar o dev server) ───
-cat > "$PROXY_SCRIPT" << 'PROXYEOF'
-const http = require("http");
+    # scripts/proxy.cjs
+    proxy_cjs = f"""const http = require("http");
 const net = require("net");
-const PORT = parseInt(process.env.PORTA);
-const PROXY_PORT = parseInt(process.env.PORTA_PROXY);
+
+const PORTA_DEV = {porta};
+const PORTA_PROXY = {porta_proxy};
+
+// Evitar crash por erros não tratados (ex: ECONNRESET)
+process.on("uncaughtException", (err) => {{
+  console.error("[proxy] erro não tratado (ignorado):", err.message);
+}});
+
 const proxy = http.createServer((req, res) => {{
-  const opts = {{ hostname: "127.0.0.1", port: PORT, path: req.url, method: req.method, headers: {{ ...req.headers, host: "localhost:" + PORT }} }};
-  const p = http.request(opts, (pr) => {{ res.writeHead(pr.statusCode, pr.headers); pr.pipe(res); }});
-  p.on("error", (e) => {{ res.writeHead(502); res.end("proxy error: " + e.message); }});
+  const opts = {{
+    hostname: "127.0.0.1",
+    port: PORTA_DEV,
+    path: req.url,
+    method: req.method,
+    headers: {{ ...req.headers, host: `localhost:${{PORTA_DEV}}` }},
+  }};
+  const p = http.request(opts, (pr) => {{
+    res.writeHead(pr.statusCode, pr.headers);
+    pr.pipe(res);
+  }});
+  p.on("error", (e) => {{
+    try {{
+      res.writeHead(502);
+      res.end("proxy error: " + e.message);
+    }} catch {{}}
+  }});
+  req.on("error", () => {{}});
   req.pipe(p);
 }});
+
 proxy.on("upgrade", (req, socket, head) => {{
-  const conn = net.connect(PORT, "127.0.0.1", () => {{
-    const headers = {{ ...req.headers, host: "localhost:" + PORT }};
-    let reqLine = req.method + " " + req.url + " HTTP/1.1\\r\\n";
-    for (const [k, v] of Object.entries(headers)) reqLine += k + ": " + v + "\\r\\n";
+  socket.on("error", () => socket.destroy());
+  const conn = net.connect(PORTA_DEV, "127.0.0.1", () => {{
+    const headers = {{ ...req.headers, host: `localhost:${{PORTA_DEV}}` }};
+    let reqLine = `${{req.method}} ${{req.url}} HTTP/1.1\\r\\n`;
+    for (const [k, v] of Object.entries(headers)) reqLine += `${{k}}: ${{v}}\\r\\n`;
     reqLine += "\\r\\n";
-    conn.write(reqLine); conn.write(head); socket.pipe(conn).pipe(socket);
+    conn.write(reqLine);
+    conn.write(head);
+    socket.pipe(conn).pipe(socket);
   }});
   conn.on("error", () => socket.destroy());
 }});
-proxy.listen(PROXY_PORT, "0.0.0.0", () => console.log("proxy on 0.0.0.0:" + PROXY_PORT + " -> 127.0.0.1:" + PORT));
-PROXYEOF
-PORTA=$PORTA PORTA_PROXY=$PORTA_PROXY nohup node "$PROXY_SCRIPT" > "$PROXY_LOG" 2>&1 &
-echo "Proxy PID: $! (0.0.0.0:$PORTA_PROXY -> 127.0.0.1:$PORTA)"
-sleep 2
 
-# ── Tunnel ngrok via API REST (agente dockerizado na porta 4040) ───
-curl -s -X DELETE "http://localhost:4040/api/tunnels/$NOME" 2>/dev/null || true
-sleep 1
-
-TUNNEL_URL=$(curl -s -X POST http://localhost:4040/api/tunnels \\
-  -H "Content-Type: application/json" \\
-  -d "{{\\"addr\\": \\"http://$HOST_IP:$PORTA_PROXY\\", \\"proto\\": \\"http\\", \\"name\\": \\"$NOME\\", \\"subdomain\\": \\"${{NOME}}-painel\\"}}" 2>/dev/null \\
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('public_url',''))" 2>/dev/null || echo "")
-
-if [ -n "$TUNNEL_URL" ]; then
-    echo "🌐 URL pública: $TUNNEL_URL"
-else
-    echo "⚠️  Tunnel criado mas não consegui obter URL. Tente: curl -s http://localhost:4040/api/tunnels"
-fi
-
-echo ""
-echo "🏠 URL local: http://localhost:$PORTA"
+proxy.listen(PORTA_PROXY, "0.0.0.0", () =>
+  console.log(`proxy on 0.0.0.0:${{PORTA_PROXY}} -> 127.0.0.1:${{PORTA_DEV}}`),
+);
 """
-    script_path = os.path.join(projeto_dir, "dev-server.sh")
-    with open(script_path, "w") as f:
-        f.write(dev_server_sh)
-    os.chmod(script_path, 0o755)
+    with open(os.path.join(scripts_dir, "proxy.cjs"), "w") as f:
+        f.write(proxy_cjs)
+
+    # scripts/ngrok-tunnel.sh
+    ngrok_tunnel_sh = f"""#!/bin/bash
+# Cria o túnel ngrok e monitora se está vivo
+
+NGROK_API="http://localhost:4040/api/tunnels"
+NOME="{nome}"
+SUBDOMINIO="{nome}-painel"
+ADDR="http://172.18.0.1:{porta_proxy}"
+
+criar_tunnel() {{
+  curl -s -X DELETE "${{NGROK_API}}/${{NOME}}" 2>/dev/null || true
+  sleep 1
+  RESP=$(curl -s -X POST "$NGROK_API" \\
+    -H "Content-Type: application/json" \\
+    -d "{{\\"addr\\":\\"${{ADDR}}\\",\\"proto\\":\\"http\\",\\"name\\":\\"${{NOME}}\\",\\"subdomain\\":\\"${{SUBDOMINIO}}\\"}}")
+  URL=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('public_url',''))" 2>/dev/null)
+  if [ -n "$URL" ]; then
+    echo "[$( date )] Ngrok ativo: $URL"
+  else
+    echo "[$( date )] ERRO ngrok: $RESP"
+  fi
+}}
+
+criar_tunnel
+
+# Health check a cada 30s — recria se cair
+while true; do
+  sleep 30
+  if ! curl -s "${{NGROK_API}}/${{NOME}}" | python3 -c "import sys,json; json.load(sys.stdin)['public_url']" 2>/dev/null; then
+    echo "[$( date )] Túnel caiu, recriando..."
+    criar_tunnel
+  fi
+done
+"""
+    ngrok_path = os.path.join(scripts_dir, "ngrok-tunnel.sh")
+    with open(ngrok_path, "w") as f:
+        f.write(ngrok_tunnel_sh)
+    os.chmod(ngrok_path, 0o755)
 
     # Git init + primeiro commit
     await msg.reply_text("🔧 Configurando Git...")
@@ -322,42 +386,56 @@ echo "🏠 URL local: http://localhost:$PORTA"
         )
         await proc.communicate()
 
-    # Iniciar dev server + proxy + tunnel via dev-server.sh
-    await msg.reply_text(f"🌐 Iniciando servidor dev (porta {porta}) + proxy ({porta_proxy}) + tunnel público...")
+    # Iniciar dev server + proxy + tunnel via PM2
+    await msg.reply_text(f"🌐 Iniciando PM2 (dev server porta {porta} + proxy {porta_proxy} + ngrok)...")
     try:
         proc = await asyncio.create_subprocess_exec(
-            "bash", os.path.join(projeto_dir, "dev-server.sh"),
+            "pnpm", "pm2",
             cwd=projeto_dir,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=_ENV,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
-        saida = stdout.decode().strip()
 
-        # Extrair URL pública da saída do script
-        tunnel_url = ""
-        for linha in saida.splitlines():
-            if "URL pública:" in linha:
-                tunnel_url = linha.split("URL pública:")[-1].strip()
-                break
-
-        if tunnel_url:
+        if proc.returncode != 0:
+            erro = stderr.decode().strip() or stdout.decode().strip()
             await msg.reply_text(
-                f"🌐 <b>URL pública:</b> {tunnel_url}\n"
-                f"🏠 <b>URL local:</b> http://localhost:{porta}\n\n"
-                f"Tunnel ativo enquanto o bot estiver rodando.",
+                f"⚠️ Erro ao iniciar PM2:\n<pre>{html.escape(erro[:1500])}</pre>",
                 parse_mode="HTML",
             )
         else:
-            await msg.reply_text(
-                f"⚠️ Tunnel ngrok criado mas não consegui obter a URL pública.\n\n"
-                f"🏠 <b>URL local:</b> http://localhost:{porta}\n"
-                f"🔧 Tente: <code>/bash curl -s http://localhost:4040/api/tunnels</code> para verificar manualmente.",
-                parse_mode="HTML",
-            )
+            # Aguardar ngrok subir e buscar URL pública
+            await asyncio.sleep(8)
+            tunnel_url = ""
+            try:
+                proc_url = await asyncio.create_subprocess_exec(
+                    "curl", "-s", f"http://localhost:4040/api/tunnels/{nome}",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                )
+                url_out, _ = await asyncio.wait_for(proc_url.communicate(), timeout=10)
+                tunnel_data = json.loads(url_out.decode())
+                tunnel_url = tunnel_data.get("public_url", "")
+            except Exception:
+                pass
+
+            if tunnel_url:
+                await msg.reply_text(
+                    f"🌐 <b>URL pública:</b> {tunnel_url}\n"
+                    f"🏠 <b>URL local:</b> http://localhost:{porta}\n\n"
+                    f"PM2 gerencia 3 processos com auto-restart.\n"
+                    f"Parar: <code>pnpm pm2:stop</code> | Logs: <code>pnpm pm2:logs</code>",
+                    parse_mode="HTML",
+                )
+            else:
+                await msg.reply_text(
+                    f"⚠️ PM2 iniciado mas não consegui obter a URL pública do ngrok.\n\n"
+                    f"🏠 <b>URL local:</b> http://localhost:{porta}\n"
+                    f"🔧 Tente: <code>/bash curl -s http://localhost:4040/api/tunnels</code>",
+                    parse_mode="HTML",
+                )
     except (asyncio.TimeoutError, Exception) as e:
-        await msg.reply_text(f"⚠️ Projeto criado, mas erro ao iniciar tunnel:\n<pre>{html.escape(str(e)[:500])}</pre>", parse_mode="HTML")
+        await msg.reply_text(f"⚠️ Projeto criado, mas erro ao iniciar PM2:\n<pre>{html.escape(str(e)[:500])}</pre>", parse_mode="HTML")
 
     _tunnel_procs[nome] = {"porta": porta, "porta_proxy": porta_proxy}
 
