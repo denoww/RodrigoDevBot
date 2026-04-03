@@ -10,6 +10,7 @@ Bot Telegram para controle remoto de projetos no desktop. Permite executar coman
 - `lib/git_ops.py` — Operações git (diff, push, branch, reset, commit com IA)
 - `lib/hooks.py` — Hooks pós-push
 - `lib/novo_projeto.py` — Criação de projetos vinext (scaffold, GitHub, config)
+- `lib/users.py` — Gerenciamento de usuários autorizados (persistência JSON, handlers, helpers)
 - `lib/utils.py` — Utilitários (estado, autorização, execução de comandos)
 - `bot.sh` — Script de gerenciamento (install/uninstall/restart/logs)
 

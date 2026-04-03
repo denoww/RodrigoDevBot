@@ -30,7 +30,10 @@ from telegram.ext import (
 from lib.config import (
     BOT_NOME, TOKEN, OWNER_CHAT_ID, BOT_SERVICE, BOT_REPO_DIR,
     PROJETOS, BOTFATHER_COMMANDS, WORKSPACE, descobrir_projetos,
+)
+from lib.users import (
     USERS_AUTORIZADOS, is_owner, adicionar_user, remover_user, chat_ids_autorizados,
+    cmd_users, callback_users, user_pendente, processar_user_pendente,
 )
 from lib.utils import (
     estado, _salvar_estado, pendente, push_pendente, novo_projeto_pendente, ia_apikey_pendente, ia_modelo_pendente,
@@ -268,6 +271,10 @@ async def cmd_new_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @autorizado
 async def cmd_cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    if chat_id in user_pendente:
+        del user_pendente[chat_id]
+        await update.message.reply_text("Gestão de usuários cancelada.")
+        return
     if chat_id in ia_apikey_pendente:
         del ia_apikey_pendente[chat_id]
         await update.message.reply_text("Configuração de IA cancelada.")
@@ -310,81 +317,6 @@ async def cmd_cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"ℹ️ Nada para cancelar. [{label}]")
 
 
-@apenas_owner
-async def cmd_adduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    /adduser <chat_id> [nome] — adiciona usuário autorizado.
-    Também funciona encaminhando uma mensagem do usuário com /adduser na legenda.
-    """
-    if not context.args:
-        await update.message.reply_text(
-            "Uso: /adduser <chat_id> [nome]\n\n"
-            "Para descobrir o chat_id, peça pra pessoa mandar qualquer mensagem pro bot — "
-            "ela vai receber o chat_id na resposta de 'não autorizado'."
-        )
-        return
-
-    try:
-        new_id = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("⚠️ chat_id deve ser um número.")
-        return
-
-    nome = " ".join(context.args[1:]) if len(context.args) > 1 else f"user_{new_id}"
-    adicionar_user(new_id, nome, adicionado_por=str(update.effective_chat.id))
-
-    await update.message.reply_text(
-        f"✅ Usuário adicionado!\n\n"
-        f"Chat ID: <code>{new_id}</code>\n"
-        f"Nome: {nome}\n\n"
-        f"Agora essa pessoa pode usar o bot.",
-        parse_mode="HTML",
-    )
-
-    # Tenta notificar o novo usuário
-    try:
-        await context.bot.send_message(
-            chat_id=new_id,
-            text=f"🎉 Você foi autorizado no bot {BOT_NOME}!\nDigite /menu para ver os comandos.",
-        )
-    except Exception:
-        pass
-
-
-@apenas_owner
-async def cmd_removeuser(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/removeuser <chat_id> — remove um usuário autorizado."""
-    if not context.args:
-        await update.message.reply_text("Uso: /removeuser <chat_id>")
-        return
-
-    try:
-        rm_id = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("⚠️ chat_id deve ser um número.")
-        return
-
-    if is_owner(rm_id):
-        await update.message.reply_text("⚠️ Não é possível remover o owner.")
-        return
-
-    if remover_user(rm_id):
-        await update.message.reply_text(f"✅ Usuário {rm_id} removido.")
-    else:
-        await update.message.reply_text(f"⚠️ Usuário {rm_id} não encontrado na lista.")
-
-
-@autorizado
-async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/users — lista os usuários autorizados."""
-    linhas = []
-    for uid, info in USERS_AUTORIZADOS.items():
-        owner_tag = " 👑" if is_owner(uid) else ""
-        linhas.append(f"  <code>{uid}</code> — {info.get('nome', '?')}{owner_tag}")
-    texto = f"👥 <b>Usuários autorizados ({len(USERS_AUTORIZADOS)}):</b>\n" + "\n".join(linhas)
-    await update.message.reply_text(texto, parse_mode="HTML")
-
-
 @autorizado
 async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🔄 Atualizando e reiniciando {BOT_NOME}...")
@@ -424,6 +356,10 @@ async def mensagem_livre(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.effective_chat.id
+
+    # Fluxo: aguardando resposta de gestão de users
+    if await processar_user_pendente(chat_id, texto, update.message, context.bot):
+        return
 
     # Fluxo: aguardando API key para análise com IA
     if chat_id in ia_apikey_pendente:
@@ -735,9 +671,8 @@ def main():
     app.add_handler(CommandHandler("gitpush", cmd_push))
     app.add_handler(CommandHandler("restart_bot", cmd_restart))
     app.add_handler(CommandHandler("restart_todos", cmd_restart_todos))
-    app.add_handler(CommandHandler("adduser", cmd_adduser))
-    app.add_handler(CommandHandler("removeuser", cmd_removeuser))
-    app.add_handler(CommandHandler("users", cmd_users))
+    app.add_handler(CommandHandler("users", autorizado(cmd_users)))
+    app.add_handler(CallbackQueryHandler(callback_users, pattern=r"^users:"))
 
     # Comando desconhecido
     @autorizado
