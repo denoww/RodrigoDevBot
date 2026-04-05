@@ -51,6 +51,7 @@ from lib.git_ops import (
     _enviar_diff, _gerar_commit_ia, git_push,
 )
 from lib.hooks import pos_push
+from lib.ngrok import cmd_ngrok
 from lib.novo_projeto import (
     callback_novo_projeto, callback_uso_projeto, callback_github_novo, criar_projeto, validar_nome_projeto,
     callback_ia_analise, callback_ia_provider, callback_ia_modelo, processar_apikey_ia,
@@ -250,11 +251,9 @@ async def cmd_bash(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Uso: /bash <comando>")
         return
 
-    if not await exigir_projeto(update):
-        return
-
+    cwd = projeto_path(update.effective_chat.id) or os.path.expanduser("~")
     await update.message.reply_text("⏳ Executando...")
-    res = await rodar_async(cmd, cwd=projeto_path(update.effective_chat.id))
+    res = await rodar_async(cmd, cwd=cwd)
     await enviar_resultado(update, res, cmd)
 
 
@@ -663,6 +662,7 @@ def main():
     app.add_handler(CommandHandler("menu", cmd_menu))
     app.add_handler(CommandHandler("ping_pc", cmd_ping_pc))
     app.add_handler(CommandHandler("bash", cmd_bash))
+    app.add_handler(CommandHandler("ngrok", cmd_ngrok))
     app.add_handler(CommandHandler("limpar_conversa", cmd_new_session))
     app.add_handler(CommandHandler("cancelar", cmd_cancelar))
     app.add_handler(CommandHandler("gitdiff", cmd_diff))

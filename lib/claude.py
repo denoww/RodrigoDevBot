@@ -6,7 +6,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
-from lib.config import BOT_NOME, BOT_REPO_DIR, CLAUDE_TIMEOUT, MAX_STDOUT, LOG_MAX_BYTES, LOG_BACKUP_COUNT, TELEGRAM_MSG_LIMIT
+from lib.config import BOT_NOME, BOT_REPO_DIR, CLAUDE_TIMEOUT, LOG_MAX_BYTES, LOG_BACKUP_COUNT, TELEGRAM_MSG_LIMIT
 from lib.utils import rodar, projeto_path, projeto_label
 from lib.hooks import git_remote_hash, detectar_eventos, executar_hooks
 
@@ -143,10 +143,6 @@ def rodar_claude(prompt, cwd, session_id=None):
 
     if not texto_resposta:
         texto_resposta = "(sem resposta)"
-
-    # Truncar resposta final (não o JSON bruto)
-    if len(texto_resposta) > MAX_STDOUT:
-        texto_resposta = texto_resposta[:MAX_STDOUT] + "\n\n… (truncado)"
 
     return res, texto_resposta, novo_session_id
 

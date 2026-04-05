@@ -45,6 +45,7 @@ BOTFATHER_COMMANDS = (
     "gitdiff - Mostra diff e sugere mensagem de commit\n"
     "projeto - Seleciona o projeto ativo\n"
     "bash - Roda um comando no terminal\n"
+    "ngrok - Gerencia tunnel ngrok do projeto\n"
     "gitbranch - Troca ou cria branch\n"
     "gitreset - Descarta todas as alteracoes locais\n"
     "ping_pc - Checa se o desktop esta ligado\n"
