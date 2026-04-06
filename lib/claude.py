@@ -180,6 +180,9 @@ async def rodar_claude_completo(msg, chat_id, prompt):
 
         if novo_session_id:
             claude_sessions[cwd] = novo_session_id
+        elif res["code"] is not None and res["code"] < 0:
+            # Processo foi morto (timeout ou /stop) — limpa sessão para não retomar contexto pesado
+            claude_sessions.pop(cwd, None)
 
         logar_claude(label, cwd, f"{log_prefix}{prompt}", res, texto_resposta)
 
