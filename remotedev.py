@@ -42,7 +42,8 @@ from lib.utils import (
     atualizar_nome_bot,
 )
 from lib.claude import (
-    claude_sessions, claude_cancelado,
+    claude_sessions, claude_cancelado, claude_processos, claude_locks,
+    CLAUDE_LOCK_FILE,
     enviar_para_claude, rodar_claude_completo,
 )
 from lib.git_ops import (
@@ -293,10 +294,8 @@ async def cmd_cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cwd = projeto_path(update.effective_chat.id)
     label = projeto_label(update.effective_chat.id)
 
-    from lib.claude import claude_processos
     proc = claude_processos.get(cwd)
 
-    from lib.claude import claude_locks
     lock = claude_locks.get(cwd)
     tem_fila = lock and lock.locked()
 
@@ -314,6 +313,39 @@ async def cmd_cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🛑 Fila limpa! [{label}]")
     else:
         await update.message.reply_text(f"ℹ️ Nada para cancelar. [{label}]")
+
+
+@autorizado
+async def cmd_restart_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Para todos os processos Claude em todos os projetos e limpa sessões/locks."""
+    mortos = 0
+    for cwd, proc in list(claude_processos.items()):
+        if proc and proc.poll() is None:
+            claude_cancelado.add(cwd)
+            try:
+                os.killpg(os.getpgid(proc.pid), 9)
+            except ProcessLookupError:
+                pass
+            mortos += 1
+        claude_processos.pop(cwd, None)
+
+    sessoes = len(claude_sessions)
+    claude_sessions.clear()
+    claude_cancelado.clear()
+    claude_locks.clear()
+
+    try:
+        os.remove(CLAUDE_LOCK_FILE)
+    except OSError:
+        pass
+
+    partes = []
+    if mortos:
+        partes.append(f"{mortos} processo(s) encerrado(s)")
+    if sessoes:
+        partes.append(f"{sessoes} sessão(ões) limpas")
+    detalhe = ", ".join(partes) if partes else "nada estava rodando"
+    await update.message.reply_text(f"🔄 Claude reiniciado — {detalhe}.")
 
 
 @autorizado
@@ -665,6 +697,7 @@ def main():
     app.add_handler(CommandHandler("ngrok", cmd_ngrok))
     app.add_handler(CommandHandler("limpar_conversa", cmd_new_session))
     app.add_handler(CommandHandler("cancelar", cmd_cancelar))
+    app.add_handler(CommandHandler("restart_claude", cmd_restart_claude))
     app.add_handler(CommandHandler("gitdiff", cmd_diff))
     app.add_handler(CommandHandler("gitreset", cmd_gitreset))
     app.add_handler(CommandHandler("gitbranch", cmd_gitbranch))

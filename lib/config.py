@@ -39,6 +39,7 @@ PROJETO_PADRAO = None
 BOTFATHER_COMMANDS = (
     "gitpush - Commit + push\n"
     "cancelar - Cancela o comando em andamento\n"
+    "restart_claude - Para todos os processos Claude e limpa sessoes\n"
     "restart_bot - Reinicia o bot\n"
     "limpar_conversa - Limpa conversa do Claude\n"
     "restart_todos - Reinicia todos os bots da maquina\n"
@@ -54,7 +55,7 @@ BOTFATHER_COMMANDS = (
 )
 
 DEFAULT_TIMEOUT = 120
-CLAUDE_TIMEOUT = 600
+CLAUDE_TIMEOUT = 1800
 MAX_STDOUT = 3800          # truncar stdout acima disso
 MAX_DIFF = 8000            # truncar diff enviado pro Claude
 TELEGRAM_MSG_LIMIT = 4096  # limite do Telegram por mensagem
