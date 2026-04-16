@@ -354,6 +354,35 @@ async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subprocess.Popen(f"sleep 2 && cd {BOT_REPO_DIR} && git pull && systemctl --user restart {BOT_SERVICE}", shell=True)
 
 
+@apenas_owner
+async def cmd_reboot_pc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    teclado = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Sim, reiniciar", callback_data="reboot:sim"),
+            InlineKeyboardButton("❌ Cancelar", callback_data="reboot:nao"),
+        ]
+    ])
+    await update.message.reply_text(
+        "⚠️ <b>Reiniciar o computador?</b>\n\nTodos os processos serão encerrados.",
+        parse_mode="HTML",
+        reply_markup=teclado,
+    )
+
+
+@autorizado
+async def callback_reboot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_owner(update.effective_chat.id):
+        await query.edit_message_text("⛔ Apenas o dono do bot pode reiniciar o computador.")
+        return
+    if query.data == "reboot:sim":
+        await query.edit_message_text("🔄 Reiniciando o computador em 3 segundos...")
+        subprocess.Popen("sleep 3 && sudo reboot", shell=True)
+    else:
+        await query.edit_message_text("❌ Reinicialização cancelada.")
+
+
 @autorizado
 async def cmd_restart_todos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -702,6 +731,8 @@ def main():
     app.add_handler(CommandHandler("gitreset", cmd_gitreset))
     app.add_handler(CommandHandler("gitbranch", cmd_gitbranch))
     app.add_handler(CommandHandler("gitpush", cmd_push))
+    app.add_handler(CommandHandler("reboot_pc", cmd_reboot_pc))
+    app.add_handler(CallbackQueryHandler(callback_reboot, pattern=r"^reboot:"))
     app.add_handler(CommandHandler("restart_bot", cmd_restart))
     app.add_handler(CommandHandler("restart_todos", cmd_restart_todos))
     app.add_handler(CommandHandler("users", autorizado(cmd_users)))

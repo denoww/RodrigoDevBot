@@ -35,26 +35,13 @@ git -C "$REPO_DIR" pull --ff-only origin "$BRANCH" >> "$REPO_DIR/gitpull.log" 2>
 
 SERVICE_DIR="$HOME/.config/systemd/user"
 
-LOCK_TIMEOUT=300  # esperar no máximo 5 min pelo Claude terminar
-
 for conf in "$BOTS_DIR"/*.conf; do
     [ -f "$conf" ] || continue
     nome=$(basename "$conf" .conf)
     nome_upper=$(echo "$nome" | tr '[:lower:]' '[:upper:]')
     env_file="$SERVICE_DIR/remotedev-$nome.env"
 
-    # Aguardar se Claude está rodando neste bot
-    lock_file="/tmp/remotedev-claude-$nome.lock"
-    waited=0
-    while [ -f "$lock_file" ] && [ "$waited" -lt "$LOCK_TIMEOUT" ]; do
-        if [ "$waited" -eq 0 ]; then
-            echo "$(date '+%Y-%m-%d %H:%M:%S') — ⏳ Bot [$nome] com Claude ativo, aguardando..." >> "$REPO_DIR/gitpull.log"
-        fi
-        sleep 5
-        waited=$((waited + 5))
-    done
-
-    # Notificar no Telegram antes de reiniciar
+    # Notificar no Telegram que há atualização disponível (sem reiniciar)
     if [ -f "$env_file" ]; then
         token=$(grep "^TELEGRAM_BOT_${nome_upper}_TOKEN=" "$env_file" | cut -d= -f2-)
         chat_id=$(grep "^TELEGRAM_${nome_upper}_CHAT_ID=" "$env_file" | cut -d= -f2-)
@@ -62,26 +49,15 @@ for conf in "$BOTS_DIR"/*.conf; do
             curl -s -X POST "https://api.telegram.org/bot${token}/sendMessage" \
                 -d chat_id="$chat_id" \
                 -d parse_mode="HTML" \
-                -d text="🔄 <b>Atualização detectada!</b>
+                -d text="🆕 <b>Nova versão disponível!</b>
 
-Reiniciando bot em 5s...
+O código foi atualizado em segundo plano. Para aplicar as novidades, use /restart_bot.
+
+⚠️ <b>Atenção:</b> ao reiniciar, a conversa atual com o Claude será encerrada — qualquer tarefa em andamento será perdida. Reinicie apenas quando estiver num momento tranquilo.
 
 <code>$COMMITS</code>" > /dev/null 2>&1
         fi
     fi
 
-    sleep 5
-
-    # Re-verificar lock antes do restart (pode ter iniciado durante o sleep)
-    waited=0
-    while [ -f "$lock_file" ] && [ "$waited" -lt "$LOCK_TIMEOUT" ]; do
-        if [ "$waited" -eq 0 ]; then
-            echo "$(date '+%Y-%m-%d %H:%M:%S') — ⏳ Bot [$nome] Claude iniciou durante espera, aguardando..." >> "$REPO_DIR/gitpull.log"
-        fi
-        sleep 5
-        waited=$((waited + 5))
-    done
-
-    systemctl --user restart "remotedev-$nome" 2>/dev/null && \
-        echo "$(date '+%Y-%m-%d %H:%M:%S') — 🔄 Bot [$nome] reiniciado" >> "$REPO_DIR/gitpull.log"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') — ✅ Bot [$nome] notificado (restart manual)" >> "$REPO_DIR/gitpull.log"
 done

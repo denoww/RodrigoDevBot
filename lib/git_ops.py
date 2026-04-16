@@ -14,7 +14,10 @@ from telegram.ext import ContextTypes
 
 
 def git_push(cwd, timeout=60):
-    """Faz git push, com fallback para -u origin <branch> se não tiver upstream."""
+    """Faz pull --rebase antes do push para evitar rejeição por histórico desatualizado."""
+    # Pull antes de tentar push (ignora falha se não houver upstream ainda)
+    rodar("git pull --rebase", cwd=cwd, timeout=timeout)
+
     res = rodar("git push", cwd=cwd, timeout=timeout)
     if res["code"] != 0 and "no upstream branch" in (res["stderr"] or ""):
         branch = subprocess.run(
@@ -23,11 +26,6 @@ def git_push(cwd, timeout=60):
         ).stdout.strip()
         if branch:
             res = rodar(f"git push -u origin {branch}", cwd=cwd, timeout=timeout)
-    # Se rejeitado por non-fast-forward, faz pull --rebase e tenta de novo
-    if res["code"] != 0 and "non-fast-forward" in (res["stderr"] or ""):
-        pull = rodar("git pull --rebase", cwd=cwd, timeout=timeout)
-        if pull["code"] == 0:
-            res = rodar("git push", cwd=cwd, timeout=timeout)
     return res
 
 

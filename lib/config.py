@@ -43,6 +43,7 @@ BOTFATHER_COMMANDS = (
     "restart_bot - Reinicia o bot\n"
     "limpar_conversa - Limpa conversa do Claude\n"
     "restart_todos - Reinicia todos os bots da maquina\n"
+    "reboot_pc - Reinicia o computador\n"
     "gitdiff - Mostra diff e sugere mensagem de commit\n"
     "projeto - Seleciona o projeto ativo\n"
     "bash - Roda um comando no terminal\n"
@@ -55,7 +56,7 @@ BOTFATHER_COMMANDS = (
 )
 
 DEFAULT_TIMEOUT = 120
-CLAUDE_TIMEOUT = 1800
+CLAUDE_TIMEOUT = 2400
 MAX_STDOUT = 3800          # truncar stdout acima disso
 MAX_DIFF = 8000            # truncar diff enviado pro Claude
 TELEGRAM_MSG_LIMIT = 4096  # limite do Telegram por mensagem

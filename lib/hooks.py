@@ -3,12 +3,8 @@ import asyncio
 import subprocess
 import json as json_mod
 
-import time
-
-from lib.config import BOT_NOME, BOT_SERVICE, BOT_REPO_DIR
+from lib.config import BOT_REPO_DIR
 from lib.utils import rodar
-
-LOCK_TIMEOUT = 300  # esperar no máximo 5 min pelo Claude terminar
 
 
 def carregar_hooks(cwd):
@@ -75,27 +71,10 @@ async def pos_push(update_or_msg, cwd, res):
     for h in await asyncio.to_thread(executar_hooks, cwd, {"git_pushed"}):
         await msg.reply_text(h)
     if os.path.realpath(cwd) == os.path.realpath(BOT_REPO_DIR):
-        # Reinicia todos os bots remotedev da máquina, não só o atual
-        try:
-            res_units = subprocess.run(
-                ["systemctl", "--user", "list-units", "remotedev-*", "--no-legend", "--plain"],
-                capture_output=True, text=True, timeout=10,
-            )
-            services = [line.split()[0] for line in res_units.stdout.strip().splitlines() if line.strip()]
-        except Exception:
-            services = [BOT_SERVICE]
-        if not services:
-            services = [BOT_SERVICE]
-        nomes = ", ".join(s.replace("remotedev-", "").replace(".service", "") for s in services)
-        await msg.reply_text(f"🔄 Reiniciando {nomes}...")
-        # Script aguarda locks de TODOS os bots (inclusive o próprio) antes de cada restart
-        restart_parts = []
-        for s in services:
-            bot_nome = s.replace("remotedev-", "").replace(".service", "")
-            lock_file = f"/tmp/remotedev-claude-{bot_nome}.lock"
-            restart_parts.append(
-                f'w=0; while [ -f "{lock_file}" ] && [ "$w" -lt {LOCK_TIMEOUT} ]; do sleep 5; w=$((w+5)); done; '
-                f'systemctl --user restart {s}'
-            )
-        restart_script = "; ".join(restart_parts)
-        subprocess.Popen(f"sleep 2 && {restart_script}", shell=True)
+        await msg.reply_text(
+            "🆕 <b>Push feito com sucesso!</b>\n\n"
+            "Use /restart_bot para aplicar as atualizações.\n\n"
+            "⚠️ <b>Atenção:</b> ao reiniciar, a conversa atual com o Claude será encerrada — "
+            "qualquer tarefa em andamento será perdida. Reinicie apenas quando estiver num momento tranquilo.",
+            parse_mode="HTML",
+        )
