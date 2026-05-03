@@ -10,3 +10,4 @@ venv/
 bots/*.conf
 *.log
 .estado-*.json
+.modelo-*.json
