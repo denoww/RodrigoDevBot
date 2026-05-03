@@ -59,6 +59,7 @@ from lib.novo_projeto import (
     callback_ia_analise, callback_ia_provider, callback_ia_modelo, processar_apikey_ia,
 )
 from lib.excluir_projeto import callback_excluir_projeto, callback_confirmar_exclusao, callback_excluir
+from lib.media_groups import adicionar_ao_grupo_ou_processar
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -569,7 +570,8 @@ async def mensagem_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         photo = update.message.photo[-1]
         file = await photo.get_file()
-        img_name = f"telegram_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+        # %f (microssegundos) evita colisão entre fotos do mesmo segundo num grupo
+        img_name = f"telegram_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.jpg"
         img_path = os.path.join(tempfile.gettempdir(), img_name)
         await file.download_to_drive(img_path)
 
@@ -579,15 +581,7 @@ async def mensagem_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 img.thumbnail((1024, 1024))
             img.save(img_path, "JPEG", quality=80, optimize=True)
 
-        if caption:
-            prompt = f"Analise a imagem em {img_path} e responda: {caption}"
-        else:
-            prompt = f"Leia a imagem em {img_path}. Se for um erro ou bug, sugira a correção. Se for código, analise. Seja direto e objetivo, sem descrever a imagem."
-
-        await enviar_para_claude(update, prompt)
-
-        if os.path.exists(img_path):
-            os.unlink(img_path)
+        await adicionar_ao_grupo_ou_processar(update, img_path, "a imagem", caption)
 
     except Exception as e:
         await update.message.reply_text(f"❌ Erro ao processar imagem: {e}")
@@ -689,20 +683,13 @@ async def mensagem_documento(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         file = await doc.get_file()
         nome_original = doc.file_name or "documento"
-        sufixo = os.path.splitext(nome_original)[1] or ""
-        nome_tmp = f"telegram_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{nome_original}"
+        # %f (microssegundos) evita colisão entre arquivos do mesmo segundo num grupo
+        nome_tmp = f"telegram_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{nome_original}"
         file_path = os.path.join(tempfile.gettempdir(), nome_tmp)
         await file.download_to_drive(file_path)
 
-        if caption:
-            prompt = f"Leia o arquivo {file_path} (nome original: {nome_original}) e responda: {caption}"
-        else:
-            prompt = f"Leia o arquivo {file_path} (nome original: {nome_original}). Analise o conteúdo e dê um resumo objetivo."
-
-        await enviar_para_claude(update, prompt)
-
-        if os.path.exists(file_path):
-            os.unlink(file_path)
+        descricao = f"o arquivo (nome original: {nome_original})"
+        await adicionar_ao_grupo_ou_processar(update, file_path, descricao, caption)
 
     except Exception as e:
         erro = str(e)
