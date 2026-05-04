@@ -415,14 +415,16 @@ Description=remotedev [$BOT_NOME] - Telegram Bot
 After=network-online.target
 Wants=network-online.target
 OnFailure=remotedev-notify@%n.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
 WorkingDirectory=$BOT_DIR
-ExecStartPre=-/usr/bin/git -C $BOT_DIR pull --ff-only
+ExecStartPre=-/usr/bin/flock -w 30 /tmp/remotedev-gitpull.lock /usr/bin/git -C $BOT_DIR pull --ff-only origin main
 ExecStart=$BOT_DIR/venv/bin/python3 remotedev.py $BOT_NOME
 Restart=always
-RestartSec=5
+RestartSec=15
 EnvironmentFile=$SERVICE_DIR/$SERVICE_NAME.env
 
 [Install]

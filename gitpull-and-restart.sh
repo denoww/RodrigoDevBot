@@ -9,6 +9,12 @@
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 BOTS_DIR="$REPO_DIR/bots"
 BRANCH="main"
+LOCK_FILE="/tmp/remotedev-gitpull.lock"
+
+# Serializa fetch+pull com os ExecStartPre dos services pra evitar
+# corrupção concorrente de FETCH_HEAD ("Cannot fast-forward to multiple branches")
+exec 9>"$LOCK_FILE"
+flock -w 60 9 || exit 0
 
 # Fetch silencioso
 git -C "$REPO_DIR" fetch origin "$BRANCH" --quiet 2>/dev/null || exit 0
