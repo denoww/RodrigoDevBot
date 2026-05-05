@@ -16,6 +16,7 @@ import html
 import subprocess
 import tempfile
 import time
+import asyncio
 from datetime import datetime
 from PIL import Image
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
@@ -558,6 +559,49 @@ async def mensagem_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Erro ao transcrever: {e}")
 
 
+# Buffer de álbuns: {media_group_id: {"paths": [...], "caption": str, "update": Update, "task": asyncio.Task}}
+# Telegram entrega cada foto do álbum como mensagem separada (mesmo media_group_id).
+# Acumulamos por debounce e mandamos um único prompt ao Claude com todos os paths.
+_media_groups: dict[str, dict] = {}
+_MEDIA_GROUP_DEBOUNCE = 1.5  # segundos
+
+
+async def _processar_media_group(group_id: str):
+    """Aguarda o debounce e dispara um único prompt ao Claude com todas as imagens do álbum."""
+    try:
+        await asyncio.sleep(_MEDIA_GROUP_DEBOUNCE)
+    except asyncio.CancelledError:
+        return  # outra foto do mesmo álbum chegou; será reagendado
+
+    grupo = _media_groups.pop(group_id, None)
+    if not grupo or not grupo["paths"]:
+        return
+
+    paths = grupo["paths"]
+    caption = grupo["caption"]
+    update = grupo["update"]
+
+    paths_str = ", ".join(paths)
+    if caption:
+        prompt = f"Analise as imagens em {paths_str} e responda: {caption}"
+    else:
+        prompt = (
+            f"Leia as imagens em {paths_str}. "
+            "Se forem erros ou bugs, sugira a correção. Se forem código, analise. "
+            "Seja direto e objetivo, sem descrever as imagens."
+        )
+
+    try:
+        await enviar_para_claude(update, prompt)
+    finally:
+        for p in paths:
+            try:
+                if os.path.exists(p):
+                    os.unlink(p)
+            except OSError:
+                pass
+
+
 @autorizado
 async def mensagem_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.photo:
@@ -567,11 +611,13 @@ async def mensagem_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cwd = projeto_path(update.effective_chat.id)
     caption = update.message.caption or ""
+    media_group_id = update.message.media_group_id
 
     try:
         photo = update.message.photo[-1]
         file = await photo.get_file()
-        img_name = f"telegram_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+        # %f (microssegundos) evita colisão quando várias fotos do álbum chegam no mesmo segundo
+        img_name = f"telegram_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.jpg"
         img_path = os.path.join(tempfile.gettempdir(), img_name)
         await file.download_to_drive(img_path)
 
@@ -581,6 +627,23 @@ async def mensagem_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 img.thumbnail((1024, 1024))
             img.save(img_path, "JPEG", quality=80, optimize=True)
 
+        # Álbum: acumula no buffer e reagenda o debounce
+        if media_group_id:
+            grupo = _media_groups.get(media_group_id)
+            if grupo is None:
+                grupo = {"paths": [], "caption": "", "update": update, "task": None}
+                _media_groups[media_group_id] = grupo
+            grupo["paths"].append(img_path)
+            # A caption só vem em uma das mensagens do álbum; guardamos a primeira não-vazia
+            if caption and not grupo["caption"]:
+                grupo["caption"] = caption
+            # Cancela o timer anterior e reagenda — o último a chegar dispara o batch
+            if grupo["task"] and not grupo["task"].done():
+                grupo["task"].cancel()
+            grupo["task"] = asyncio.create_task(_processar_media_group(media_group_id))
+            return
+
+        # Foto única: fluxo original
         if caption:
             prompt = f"Analise a imagem em {img_path} e responda: {caption}"
         else:
