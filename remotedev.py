@@ -15,9 +15,11 @@ import sys
 import html
 import subprocess
 import tempfile
+import time
 from datetime import datetime
 from PIL import Image
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
+from telegram.error import NetworkError, TimedOut
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -736,7 +738,23 @@ def main():
         print(f"   TELEGRAM_{BOT_NOME.upper()}_CHAT_ID (owner)")
         return
 
-    app = Application.builder().token(TOKEN).concurrent_updates(True).build()
+    # Timeouts curtos no long polling pra detectar conexões mortas rapidamente
+    # (sem isso, conexões TCP derrubadas por NAT/gateway prendem o getUpdates
+    # até um timeout muito longo, e mensagens só chegam quando uma segunda força reconexão).
+    # connect_timeout/read_timeout afetam chamadas comuns (inclusive get_me() na init):
+    # sem isso, blip de DNS/rede no boot derruba o processo e dispara restart loop do systemd.
+    app = (
+        Application.builder()
+        .token(TOKEN)
+        .concurrent_updates(True)
+        .connect_timeout(20)
+        .read_timeout(20)
+        .pool_timeout(10)
+        .get_updates_read_timeout(15)
+        .get_updates_connect_timeout(10)
+        .get_updates_pool_timeout(10)
+        .build()
+    )
 
     # Projeto
     app.add_handler(CommandHandler("p", cmd_projeto))
@@ -839,7 +857,16 @@ def main():
 
     app.post_init = post_init
     print("✅ Bot rodando! Ctrl+C pra parar.\n")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    # timeout=10 → Telegram segura o long-poll por 10s; com read_timeout=15 acima,
+    # se a conexão morrer o httpx detecta em ~15s e o polling retoma rápido.
+    # Loop de retry: rede flaky não pode matar o processo (evita restart loop do systemd).
+    while True:
+        try:
+            app.run_polling(allowed_updates=Update.ALL_TYPES, timeout=10)
+            break
+        except (TimedOut, NetworkError) as e:
+            print(f"⚠️  Erro de rede ({type(e).__name__}: {e}). Retentando em 10s...")
+            time.sleep(10)
 
 
 if __name__ == "__main__":
